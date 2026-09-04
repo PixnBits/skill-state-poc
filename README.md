@@ -213,6 +213,18 @@ Identical protocol for every cell: warehouse, temperature 0.0, `--max-steps 40`,
 
 Traces: `runs/bench/<model>__<runtime>__seed<N>.json`. Summary tables: [`runs/BENCH.md`](runs/BENCH.md). Offline-scripted is a harness check, not a live Table 2 row. These are this machine's numbers, not the paper's 16× token table.
 
+Live Tier A (Framework Desktop, Ollama, T=0, 2026-09-04, commit `97c1651`; 20/20 cells). A smaller SKILL.state model *can* match a larger history model on success/recovery and beat it on tokens — that happened for 27B skillstate vs 31B history (token ratio 0.40 both seeds). 14B skillstate did **not** match 27B history (grammar abort before drift). 26B skillstate did **not** match 31B history. Wall-clock did not favor SKILL.state on this box (cold load lands on skillstate seed 7).
+
+| smaller skillstate | larger history | seed | success | recovery | wall_s ratio | token ratio | ss wins? |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| qwen2.5:14b skillstate | qwen3.8:27b history | 7 | ss=False h=True | ss=False h=True | 0.099 | 0.104 | no |
+| qwen2.5:14b skillstate | qwen3.8:27b history | 21 | ss=False h=True | ss=False h=True | 0.153 | 0.158 | no |
+| qwen3.8:27b skillstate | gemma4:31b history | 7 | ss=True h=True | ss=True h=True | 1.323 | 0.402 | yes |
+| qwen3.8:27b skillstate | gemma4:31b history | 21 | ss=True h=True | ss=True h=True | 1.296 | 0.402 | yes |
+| gemma4:26b skillstate | gemma4:31b history | 7 | ss=False h=True | ss=False h=True | 0.424 | 0.112 | no |
+| gemma4:26b skillstate | gemma4:31b history | 21 | ss=False h=True | ss=False h=True | 0.394 | 0.141 | no |
+| qwen3.8:27b skillstate | qwen3.6:35b history | — | *not run* | — | — | — | — |
+
 ## Warehouse skill
 
 24 shelves (`shelf_00` … `shelf_23`). Seeded scenario: inbound shipments, customer orders, occasional “another worker moved the item” drift.

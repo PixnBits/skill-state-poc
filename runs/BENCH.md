@@ -1,14 +1,14 @@
 # SKILL.state vs history bench
 
-> **PARTIAL** — matrix stopped before every planned cell finished. Numbers below are from completed cells only.
-
-Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T10:12:06.809616+00:00. Commit `97c1651`.
+Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T10:27:22.921576+00:00. Commit `97c1651`.
 
 Protocol: warehouse `--max-steps 40 --drift-at 10` seeds `[7, 21]`. Per model: skillstate then history on seed 7, then the same on seed 21 (first cell of a model is cold-load; later cells on that model are warm).
 
 History has no Σ. `recovery_lag` on history rows is steps after drift until a *valid* action names `to_shelf` for the drifted item, or the env has shipped it. We do not invent a history `patch_class`. `loc == to_shelf` is already true immediately after the silent MOVE, so it does not count as recovery without an action.
 
 These are this machine's numbers. Not the paper's 16× token table.
+
+**Answer (Tier A, this machine):** a smaller SKILL.state model *can* match a larger history model on success and recovery and beat it on tokens — `qwen3.8:27b` skillstate vs `gemma4:31b` history, both seeds, token ratio 0.40. It is not automatic: `qwen2.5:14b` skillstate did not match `qwen3.8:27b` history (14B grammar-aborted both seeds before drift), and `gemma4:26b` skillstate did not match `gemma4:31b` history. Wall-clock did not favor SKILL.state here (skillstate seed 7 is always the cold load; ~20-step history has not grown enough to dominate). Tier B / 35B was not started.
 
 ## Table 1 — full matrix
 
@@ -32,6 +32,8 @@ These are this machine's numbers. Not the paper's 16× token table.
 | gemma4:31b | 31B | history | 21 | yes | yes | 8 | 20 | 665.424 | 2553.3 | 4570 | 54450 | no |
 | granite4.2:30b | 30B | skillstate | 7 | no | no | null | 2 | 473.434 | 1066.0 | 1102 | 2132 | yes |
 | granite4.2:30b | 30B | history | 7 | no | no | null | 2 | 456.659 | 848.0 | 862 | 1696 | no |
+| granite4.2:30b | 30B | skillstate | 21 | no | no | null | 2 | 458.954 | 1066.5 | 1102 | 2133 | no |
+| granite4.2:30b | 30B | history | 21 | no | no | null | 2 | 457.126 | 848.5 | 863 | 1697 | no |
 | qwen2.5:14b | 14B | skillstate | mean | 0.0 | 0.0 | null | 4.5 | 72.3 | 1032.0 | 1089.50 | 5640 | — |
 | qwen2.5:14b | 14B | history | mean | 0.5 | 0.5 | 7.00 | 16.5 | 109.7 | 1626.0 | 2589 | 28890 | — |
 | qwen3.8:27b | 27B | skillstate | mean | 1.0 | 1.0 | 1.00 | 19.0 | 919.6 | 1017.6 | 1038.50 | 22966 | — |
@@ -40,6 +42,8 @@ These are this machine's numbers. Not the paper's 16× token table.
 | gemma4:26b | 26B | history | mean | 0.0 | 0.0 | null | 4.5 | 169.8 | 966.6 | 1081.50 | 4700 | — |
 | gemma4:31b | 31B | skillstate | mean | 0.5 | 0.5 | 2.00 | 14.0 | 1040.0 | 1032.7 | 1112 | 20126 | — |
 | gemma4:31b | 31B | history | mean | 1.0 | 1.0 | 4.50 | 20.0 | 702.0 | 2676.1 | 4783 | 57155 | — |
+| granite4.2:30b | 30B | skillstate | mean | 0.0 | 0.0 | null | 2.0 | 466.2 | 1066.2 | 1102 | 2132 | — |
+| granite4.2:30b | 30B | history | mean | 0.0 | 0.0 | null | 2.0 | 456.9 | 848.2 | 862.50 | 1696 | — |
 
 ## Table 2 — cross-size headline pairs
 
@@ -124,4 +128,5 @@ No cycle-count observation (grammar abort before drift, or no drift).
 - History prompts start smaller because they do not serialize 24 shelves; they grow with t. SKILL.state stays ~flat.
 - `wall_s` includes prompt build. The first cell of each model is a cold Ollama load; skillstate seed 7 is always first, so history seed 7 is warm on that model. Seed 21 cells are warm if the model stayed resident.
 - Offline-scripted is a harness check, not a live Table 2 row.
-- Completions are capped at 2048 tokens (`max_tokens` on the Ollama OpenAI-compat call). That is not a prompt-template change; it stops a runaway ReAct dump from filling the 32k context.
+- Completions are capped at 2048 tokens (`max_tokens` on the Ollama OpenAI-compat call). That is not a prompt-template change; it stops a runaway ReAct dump from filling the 32k context. The first 14B history seed-21 attempt generated 30k+ tokens at ~9 tok/s before this cap; that cell was restarted under 2048.
+- Tier B (`gemma4:e4b`, `qwen3-coder:30b`, `nemotron3:33b`, `qwen3.6:35b`) was not started. Tier A (14/27/26/31/Granite) finished 20/20 cells; that is the comparison this run was for. `qwen3.8:27b` default quant was not suspiciously fast or slow versus 31B, so `qwen3.8:27b-q8_0` was skipped. A Quantum ESPRESSO `ph.x` job was still on the box.
