@@ -23,6 +23,7 @@ the env error as the next observation. That is not a schema failure.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -69,6 +70,7 @@ def run_skill_state(
     failed = False
     fail_reason: str | None = None
     extra: dict[str, Any] = {}
+    episode_t0 = time.perf_counter()
 
     def emit(event: dict[str, Any]) -> None:
         if on_event:
@@ -78,6 +80,7 @@ def run_skill_state(
         if pause_check:
             pause_check()
 
+        step_t0 = time.perf_counter()
         prompt = build_skill_state_prompt(instructions, state, observation)
         emit({"type": "prompt", "step": t, "prompt": prompt, "observation": observation, "state": state})
 
@@ -166,6 +169,7 @@ def run_skill_state(
             totals=totals.as_dict(),
             proposed_item_shelf=proposed_item_shelf,
             patch_class=patch_class,
+            wall_s=time.perf_counter() - step_t0,
             runtime="skillstate",
         )
         steps.append(step)
@@ -179,6 +183,7 @@ def run_skill_state(
         observation = next_observation
 
     success = (not failed) and bool(env.success())
+    extra["wall_s"] = time.perf_counter() - episode_t0
     extra["env"] = env.snapshot() if hasattr(env, "snapshot") else {}
     rec = getattr(env, "silent_drift_record", None)
     if rec:

@@ -96,6 +96,7 @@ class StepResult:
     totals: dict[str, Any]
     proposed_item_shelf: str | None = None
     patch_class: str | None = None
+    wall_s: float = 0.0
     runtime: str = "skillstate"
 
     def as_dict(self) -> dict[str, Any]:

@@ -162,7 +162,7 @@ Equivalent scripts: `uv run python scripts/demo_warehouse.py`, `uv run python sc
 uv run pytest
 ```
 
-No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, env-reject desync (Σ unchanged), silent-drift recovery_lag, messy JSON extraction, and the flat-vs-growing prompt-curve proof.
+No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, env-reject desync (Σ unchanged), silent-drift recovery_lag, messy JSON extraction, the flat-vs-growing prompt-curve proof, and the bench JSON schema (`wall_s >= 0` on both runtimes).
 
 ## Architecture
 
@@ -197,6 +197,21 @@ uv run skillstate compare --max-steps 80 --seed 7 --drift-at 10
 ```
 
 After step index \(N\) commits, the env secretly `MOVE`s one pending item to another empty shelf. The observation is a cycle-count / floor-scanner line, not `ALERT: Another worker moved…`. The agent must notice \(O\) contradicts \(\Sigma\) and patch `inventory`. The CLI prints `recovery_lag` (steps from the drift until \(\Sigma\) matches env ground truth for that item, or `null` if it never does).
+
+History has no \(\Sigma\). On ReAct-history rows, `recovery_lag` is steps after drift until a **valid** action names `to_shelf` for the drifted item (`SHIP item to_shelf` or `MOVE item * to_shelf`), or the env has shipped it. The item already sits on `to_shelf` in the environment the instant the silent MOVE happens, so `loc == to_shelf` without an action is **not** recovery. History rows have no `patch_class`; the classifier is SKILL.state-only.
+
+## Cross-size bench (SKILL.state vs history)
+
+Question: can a smaller local model under SKILL.state match or beat a larger model under full-conversation ReAct history, on success / drift recovery / wall-clock / tokens?
+
+```bash
+uv run skillstate bench --seeds 7,21 --max-steps 40 --drift-at 10
+# default models = Tier A: qwen2.5:14b, qwen3.8:27b, gemma4:26b, gemma4:31b, granite4.2:30b
+```
+
+Identical protocol for every cell: warehouse, temperature 0.0, `--max-steps 40`, `--drift-at 10`. Each cell is `(model, runtime ∈ {skillstate, history}, seed)`. Run order per model is skillstate seed 7, history seed 7, skillstate seed 21, history seed 21 (skillstate first so cold-load cost is not dumped only onto history). Does **not** stop after the first recovery (`sweep` still does; that stop condition is wrong for this comparison). `--drift-at` stays off on `warehouse` / `compare` unless you pass it.
+
+Traces: `runs/bench/<model>__<runtime>__seed<N>.json`. Summary tables: [`runs/BENCH.md`](runs/BENCH.md). Offline-scripted is a harness check, not a live Table 2 row. These are this machine's numbers, not the paper's 16× token table.
 
 ## Warehouse skill
 

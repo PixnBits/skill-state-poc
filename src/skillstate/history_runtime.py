@@ -6,6 +6,7 @@ while SKILL.state stays flat, the implementation is wrong.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -44,6 +45,11 @@ def run_history(
     consecutive_failures = 0
     failed = False
     fail_reason: str | None = None
+    extra: dict[str, Any] = {
+        "history_turns": 0,
+        "recovery_via": "env_gt_via_actions",
+    }
+    episode_t0 = time.perf_counter()
 
     def emit(event: dict[str, Any]) -> None:
         if on_event:
@@ -53,6 +59,7 @@ def run_history(
         if pause_check:
             pause_check()
 
+        step_t0 = time.perf_counter()
         prompt = build_react_prompt(instructions, history, observation)
         emit({"type": "prompt", "step": t, "prompt": prompt, "observation": observation})
 
@@ -115,14 +122,26 @@ def run_history(
             done=done,
             success=bool(env.success()) if not failed else False,
             totals=totals.as_dict(),
+            wall_s=time.perf_counter() - step_t0,
             runtime="history",
         )
         steps.append(step)
         emit({"type": "step", "step": step.as_dict()})
+        _update_history_drift_recovery(env, action, env_error, t, observation, extra)
         if done:
             break
         observation = next_observation
 
+    extra["history_turns"] = len(history)
+    extra["wall_s"] = time.perf_counter() - episode_t0
+    extra["env"] = env.snapshot() if hasattr(env, "snapshot") else {}
+    rec = getattr(env, "silent_drift_record", None)
+    if rec:
+        extra.setdefault("drift_step", rec.get("drift_step"))
+        extra.setdefault("drifted_item", rec.get("drifted_item"))
+        extra.setdefault("from_shelf", rec.get("from_shelf"))
+        extra.setdefault("to_shelf", rec.get("to_shelf"))
+        extra.setdefault("recovery_lag", extra.get("recovery_lag"))
     result = EpisodeResult(
         runtime="history",
         skill=skill_name,
@@ -133,10 +152,66 @@ def run_history(
         fail_reason=fail_reason,
         steps=steps,
         totals=totals,
-        extra={
-            "history_turns": len(history),
-            "env": env.snapshot() if hasattr(env, "snapshot") else {},
-        },
+        extra=extra,
     )
     emit({"type": "done", "result": {k: v for k, v in result.as_dict().items() if k != "steps"}})
     return result
+
+
+def _action_targets_to_shelf(action: str, item: str, to_shelf: str) -> bool:
+    parts = (action or "").split()
+    if len(parts) == 3 and parts[0].upper() == "SHIP" and parts[1] == item and parts[2] == to_shelf:
+        return True
+    if (
+        len(parts) == 4
+        and parts[0].upper() == "MOVE"
+        and parts[1] == item
+        and parts[3] == to_shelf
+    ):
+        return True
+    return False
+
+
+def _update_history_drift_recovery(
+    env: Any,
+    action: str,
+    env_error: bool,
+    step_index: int,
+    observation: str,
+    extra: dict[str, Any],
+) -> None:
+    """Recovery from env ground truth via actions — history has no Σ.
+
+    After silent drift the item already sits on to_shelf in the env. Recovery
+    is the first later step where a *valid* action names that shelf for the
+    item, or the item has been shipped. We do not invent a patch_class.
+    """
+    rec = getattr(env, "silent_drift_record", None)
+    if not rec or not rec.get("drifted_item"):
+        return
+    extra.setdefault("drift_step", rec.get("drift_step"))
+    extra.setdefault("drifted_item", rec.get("drifted_item"))
+    extra.setdefault("from_shelf", rec.get("from_shelf"))
+    extra.setdefault("to_shelf", rec.get("to_shelf"))
+    extra.setdefault("recovery_lag", None)
+    extra.setdefault("first_post_scanner_targeted_to_shelf", None)
+    extra["recovery_via"] = "env_gt_via_actions"
+    item = rec["drifted_item"]
+    to_shelf = rec.get("to_shelf") or ""
+    drift_step = rec.get("drift_step")
+    if drift_step is None or step_index <= int(drift_step):
+        return
+    saw_scanner = "Cycle count:" in (observation or "") or "Floor scanner:" in (
+        observation or ""
+    )
+    targeted = _action_targets_to_shelf(action, item, to_shelf)
+    if saw_scanner and extra.get("first_post_scanner_targeted_to_shelf") is None:
+        extra["first_post_scanner_targeted_to_shelf"] = targeted
+    if extra.get("recovery_lag") is not None:
+        return
+    snap = env.snapshot() if hasattr(env, "snapshot") else {}
+    shipped = item in (snap.get("shipped") or [])
+    valid_target = (not env_error) and targeted
+    # loc == to_shelf is true immediately after drift without an action — ignore.
+    if shipped or valid_target:
+        extra["recovery_lag"] = step_index - int(drift_step)

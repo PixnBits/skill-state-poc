@@ -39,6 +39,8 @@ def test_five_step_compact_episode_succeeds():
     assert actions[3].startswith("SHIP")
     assert actions[4] == "DONE"
     assert len(result.steps) == 5
+    assert result.extra.get("wall_s", -1) >= 0
+    assert all(s.wall_s >= 0 for s in result.steps)
 
 
 def test_prompt_is_only_p_state_observation():

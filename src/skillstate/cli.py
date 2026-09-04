@@ -1,4 +1,4 @@
-"""Rich CLI: warehouse, repoops, compare, ui."""
+"""Rich CLI: warehouse, repoops, compare, sweep, bench, ui."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -80,6 +81,34 @@ def main(argv: list[str] | None = None) -> int:
     sweep.add_argument("--base-url", default=None)
     sweep.add_argument("--offline", action="store_true")
 
+    bench = sub.add_parser(
+        "bench",
+        help="SKILL.state vs history matrix (does not stop after first recovery)",
+    )
+    bench.add_argument("--seeds", default="7,21", help="Comma-separated seeds (default 7,21)")
+    bench.add_argument("--max-steps", type=int, default=40)
+    bench.add_argument(
+        "--drift-at",
+        type=int,
+        default=10,
+        help="Silent MOVE after this step index (bench default 10; warehouse CLI stays off)",
+    )
+    bench.add_argument(
+        "--models",
+        default=None,
+        help="Comma-separated Ollama tags (default: Tier A)",
+    )
+    bench.add_argument("--model", dest="model_list", action="append", default=None)
+    bench.add_argument("--include-tier-b", action="store_true")
+    bench.add_argument("--base-url", default=None)
+    bench.add_argument("--offline", action="store_true")
+    bench.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run cells even if runs/bench/*.json already exists",
+    )
+    bench.add_argument("--out-dir", default=None, help="Directory for per-cell JSON (default runs/bench)")
+
     ui = sub.add_parser("ui", help="Serve the local dashboard at http://127.0.0.1:8000")
     ui.add_argument("--host", default=os.environ.get("SKILLSTATE_HOST", "127.0.0.1"))
     ui.add_argument("--port", type=int, default=int(os.environ.get("SKILLSTATE_PORT", "8000")))
@@ -116,6 +145,26 @@ def main(argv: list[str] | None = None) -> int:
             base_url=args.base_url,
             console=console,
         )
+    if args.cmd == "bench":
+        from skillstate.bench import parse_models, run_bench
+
+        models = parse_models(args.models)
+        extra = [m for m in (args.model_list or []) if m]
+        if extra:
+            models = parse_models(models + extra)
+        run_bench(
+            models=None if (args.models is None and not extra) else models,
+            seeds=args.seeds,
+            max_steps=args.max_steps,
+            drift_at=args.drift_at,
+            offline=args.offline,
+            base_url=args.base_url,
+            out_dir=Path(args.out_dir) if args.out_dir else None,
+            console=console,
+            include_tier_b=args.include_tier_b,
+            force=args.force,
+        )
+        return 0
     if args.cmd == "ui":
         return _run_ui(args)
     parser.error(f"unknown command {args.cmd}")

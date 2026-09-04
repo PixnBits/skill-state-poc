@@ -13,7 +13,8 @@ from skillstate.classify import markdown_table, summarize_episode
 from skillstate.fake_llm import FakeLLM
 from skillstate.logging_util import EpisodeResult, write_run
 from skillstate.ollama_client import OllamaClient, default_base_url, health_check
-from skillstate.policies import warehouse_skillstate_policy
+from skillstate.history_runtime import run_history
+from skillstate.policies import warehouse_history_policy, warehouse_skillstate_policy
 from skillstate.runtime import run_skill_state
 from skillstate.skills.warehouse import WarehouseSkill
 
@@ -40,29 +41,39 @@ def run_warehouse_episode(
     drift_at: int | None,
     offline: bool,
     base_url: str | None = None,
+    runtime: str = "skillstate",
+    compact: bool = False,
 ) -> EpisodeResult:
     skill = WarehouseSkill()
-    env_kwargs: dict[str, Any] = {"horizon": max_steps}
+    env_kwargs: dict[str, Any] = {"horizon": max_steps, "compact": compact}
     if drift_at is not None:
         env_kwargs["drift_at"] = drift_at
     env = skill.make_env(seed, **env_kwargs)
     if offline:
-        llm: Any = FakeLLM(warehouse_skillstate_policy, model="fake")
+        policy = (
+            warehouse_history_policy if runtime == "history" else warehouse_skillstate_policy
+        )
+        llm: Any = FakeLLM(policy, model="fake")
     else:
         health_check(base_url or default_base_url(), model)
-        llm = OllamaClient(model=model, base_url=base_url)
+        llm = OllamaClient(model=model, base_url=base_url, timeout=1800.0)
     try:
-        return run_skill_state(
+        common = dict(
             skill_name=skill.name,
             instructions=skill.instructions,
-            state_schema=skill.state_schema,
-            initial_state=skill.initial_state(),
             env=env,
             llm=llm,
             parse_action=skill.parse_action,
             max_steps=max_steps,
             seed=seed,
             model=getattr(llm, "model", model),
+        )
+        if runtime == "history":
+            return run_history(initial_state=skill.initial_state(), **common)
+        return run_skill_state(
+            state_schema=skill.state_schema,
+            initial_state=skill.initial_state(),
+            **common,
         )
     finally:
         close = getattr(llm, "close", None)
