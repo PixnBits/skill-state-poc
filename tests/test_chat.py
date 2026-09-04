@@ -9,7 +9,6 @@ from skillstate.fake_llm import FakeLLM, SequenceLLM
 from skillstate.policies import chat_skillstate_policy
 from skillstate.runtime import run_skill_state
 from skillstate.skills.chat.env import (
-    GREETING,
     ChatEnv,
     parse_chat_action,
     project_history_prompt,
@@ -68,16 +67,16 @@ def test_null_facts_clear_the_list():
     assert cleared["facts"] == []
 
 
-def test_env_reset_greeting_and_feed():
+def test_env_human_starts_then_feed():
     env = ChatEnv()
-    assert env.reset() == GREETING
     env.feed("My name is Ada")
-    obs, done, info = env.step("SAY Hello. What would you like to work on?")
-    assert info["valid"] is True
-    assert info["assistant_text"] == "Hello. What would you like to work on?"
-    assert obs == "My name is Ada"
-    assert done is False
+    assert env.reset() == "My name is Ada"
     env.feed("that's enough")
+    obs, done, info = env.step("SAY Hello Ada.")
+    assert info["valid"] is True
+    assert info["assistant_text"] == "Hello Ada."
+    assert obs == "that's enough"
+    assert done is False
     obs, done, info = env.step("DONE Glad we could talk.")
     assert done is True
     assert env.success()
@@ -85,6 +84,7 @@ def test_env_reset_greeting_and_feed():
 
 def test_env_rejects_wait():
     env = ChatEnv()
+    env.feed("hello")
     env.reset()
     obs, done, info = env.step("WAIT")
     assert info["valid"] is False
@@ -134,7 +134,7 @@ def test_fake_llm_episode_two_user_turns_and_no_transcript_leak():
         assert "Reasoning & Action:" not in prompt
     # After the first user turn, the raw utterance must not re-enter A_t;
     # only Σ facts/goal may remember a short digest.
-    later = llm.prompts[2:]
+    later = llm.prompts[1:]
     assert later, "expected a later prompt after the first user line"
     for prompt in later:
         obs = prompt.split("Latest Observation:", 1)[1]
@@ -154,6 +154,7 @@ def test_validator_error_does_not_execute():
     skill = ChatSkill()
     env = ChatEnv()
     env.feed("hello")
+    env.feed("follow-up")
     llm = SequenceLLM(
         [
             "not json",

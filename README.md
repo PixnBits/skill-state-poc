@@ -128,7 +128,7 @@ No Node, no React, no build step. FastAPI serves `src/skillstate/ui/static/index
 
 ### Split-view chat demo
 
-A human chats with Ollama while the page shows, on every turn, a growing transcript versus the only context the weights actually received: \(A_t = (P, \Sigma_t, O_t)\).
+This chat UI is **not** from the paper. SKILL.state (arXiv:2608.26263) is a warehouse / long-horizon *skill execution* loop. `/chat` is a local demo of the same \(A_t = (P, \Sigma_t, O_t)\) contract on a conversation: you speak first, that line becomes \(O_t\), and the left-hand transcript is a projection that is never sent to the model.
 
 ```bash
 uv run skillstate ui

@@ -304,12 +304,8 @@ def chat_skillstate_policy(prompt: str) -> str:
     tone = str(state.get("tone") or "direct")
 
     if observation.startswith("VALIDATOR ERROR"):
-        action = "SAY Hello. What would you like to work on?"
+        action = "SAY Please say that again — I failed to format the last reply."
         reasoning = "Validator rejected the last payload; emit a legal SAY."
-    elif "start of a conversation" in observation:
-        action = "SAY Hello. What would you like to work on?"
-        reasoning = "Opening turn: greet and ask."
-        questions = ["what does the user want?"]
     elif re.search(r"\b(goodbye|that's enough|that is enough|done)\b", observation, re.I):
         action = "DONE Glad we could talk."
         reasoning = "User asked to stop; DONE."

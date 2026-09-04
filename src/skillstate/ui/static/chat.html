@@ -150,10 +150,10 @@
       <div class="thread" id="thread"></div>
       <div class="size">would-be prompt size (P + transcript + latest user): <strong id="histSize">—</strong> tokens</div>
       <div class="composer">
-        <textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline. You can draft while the assistant greets."></textarea>
+        <textarea id="input" placeholder="You speak first. Enter sends, Shift+Enter newline."></textarea>
         <div class="row">
           <button class="primary" id="btnSend">Send</button>
-          <span class="hint" id="status">starting…</span>
+          <span class="hint" id="status">your turn — you start</span>
         </div>
       </div>
     </section>
@@ -460,8 +460,8 @@ async function start() {
     instructions = j.instructions;
     $("ptext").textContent = instructions;
   }
-  setFlight(true);
-  setStatus("greeting… (27B can take a minute on first load; you can still type)");
+  setFlight(false);
+  setStatus("your turn — you speak first");
 }
 
 async function send() {

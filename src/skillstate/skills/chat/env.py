@@ -13,11 +13,6 @@ from skillstate.skills.chat.schema import initial_chat_state
 
 Op = Literal["SAY", "ASK", "DONE"]
 
-GREETING = (
-    "You are at the start of a conversation. "
-    "Greet the user in one sentence and ask what they want."
-)
-
 _ACTION_RE = re.compile(r"^(SAY|ASK|DONE) (.+)$", re.DOTALL)
 _STOP = object()
 
@@ -106,9 +101,14 @@ class ChatEnv:
         self.n_valid_actions = 0
         self.n_invalid_actions = 0
         self.awaiting_user = False
-        # Do not drain _inbox: run_skill_state always reset()s, and tests
-        # (and retries) preload the next user lines before the loop starts.
-        return self.reset_observation or GREETING
+        # Human starts: O_0 is the first user line. run_skill_state calls
+        # reset() before the first model call, so we block here until feed().
+        # Do not drain _inbox — tests preload lines before the loop starts.
+        if self.reset_observation:
+            return self.reset_observation
+        if self.on_wait:
+            self.on_wait({"type": "awaiting_user", "assistant_text": None, "op": None})
+        return self._wait_user()
 
     def step(self, action: str) -> tuple[str, bool, dict[str, Any]]:
         parsed = parse_chat_action(action)
