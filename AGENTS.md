@@ -20,9 +20,9 @@ The model emits throwaway reasoning `R_t` plus a JSON object with **exactly two 
 { "state_patch": { }, "action": "<cmd>" }
 ```
 
-Then the runtime: parse → validate against the skill schema → `Σ_{t+1} = Σ_t ⊕ ΔΣ_t` (deep merge, JSON `null` deletes that key) → execute `action` → **discard `R_t`**. Never append prior observations, actions, or chain-of-thought to the next SKILL.state prompt.
+Then the runtime: parse → validate the patch against the skill schema **on a copy of Σ** → validate action grammar → `env.step(action)` → **commit `Σ ← Σ ⊕ ΔΣ` only if `info["valid"]` is true** → **discard `R_t`**. Never append prior observations, actions, or chain-of-thought to the next SKILL.state prompt. Never commit Σ until `env.step` is valid. Never copy the env world into the prompt; Σ is the model’s belief, the env is physics.
 
-Validator failure: do not apply the patch, do not execute the action, retry once with the error as `O_{t+1}`. Two consecutive failures end the episode as failed.
+Schema/JSON failure: do not merge, do not execute, retry once with the error as `O_{t+1}`. Two consecutive schema failures end the episode as failed. An env-rejected action is not a schema failure: leave Σ unchanged and pass the env error as the next observation.
 
 ## Where the pieces live
 

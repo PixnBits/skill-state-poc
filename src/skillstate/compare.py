@@ -24,6 +24,7 @@ def run_compare(
     base_url: str | None = None,
     offline: bool = False,
     compact: bool = False,
+    drift_at: int | None = None,
     console: Console | None = None,
 ) -> dict[str, Any]:
     skill = WarehouseSkill()
@@ -37,7 +38,10 @@ def run_compare(
         return OllamaClient(model=model or None, base_url=base_url)
 
     ss_llm = make_llm("skillstate")
-    ss_env = skill.make_env(seed, compact=compact, horizon=max_steps)
+    env_kwargs: dict[str, Any] = {"compact": compact, "horizon": max_steps}
+    if drift_at is not None:
+        env_kwargs["drift_at"] = drift_at
+    ss_env = skill.make_env(seed, **env_kwargs)
     skillstate = run_skill_state(
         skill_name=skill.name,
         instructions=skill.instructions,
@@ -52,7 +56,7 @@ def run_compare(
     )
 
     hist_llm = make_llm("history")
-    hist_env = skill.make_env(seed, compact=compact, horizon=max_steps)
+    hist_env = skill.make_env(seed, **env_kwargs)
     history = run_history(
         skill_name=skill.name,
         instructions=skill.instructions,
@@ -69,6 +73,7 @@ def run_compare(
         "seed": seed,
         "max_steps": max_steps,
         "offline": offline,
+        "drift_at": drift_at,
         "skillstate": skillstate.as_dict(),
         "history": history.as_dict(),
         "proof": _proof(skillstate, history),
@@ -111,6 +116,15 @@ def run_compare(
     out.print("prompt-token curve:")
     out.print(f"  skillstate: {skillstate.totals.prompt_curve}")
     out.print(f"  history:    {history.totals.prompt_curve}")
+    if skillstate.extra.get("drift_step") is not None:
+        out.print(
+            "silent drift recovery_lag="
+            f"{skillstate.extra.get('recovery_lag')} "
+            f"(step={skillstate.extra.get('drift_step')} "
+            f"{skillstate.extra.get('drifted_item')} "
+            f"{skillstate.extra.get('from_shelf')}→"
+            f"{skillstate.extra.get('to_shelf')})"
+        )
     return payload
 
 

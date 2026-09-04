@@ -19,6 +19,10 @@ _ORDER = re.compile(r"Customer ordered (item_\d{2})")
 _DRIFT = re.compile(
     r"Another worker moved (item_\d{2}) from (shelf_\d{2}) to (shelf_\d{2})"
 )
+_CYCLE = re.compile(
+    r"Cycle count: (item_\d{2}) is not on (shelf_\d{2})\. "
+    r"Floor scanner: (item_\d{2}) is on (shelf_\d{2})\."
+)
 
 
 def _first_empty(inventory: dict[str, Any]) -> str | None:
@@ -55,6 +59,13 @@ def warehouse_skillstate_policy(prompt: str) -> str:
         if inventory.get(src) == item or inventory.get(src) is not None:
             inv_patch[src] = None
             inventory[src] = None
+        inv_patch[dst] = item
+        inventory[dst] = item
+    for item, src, scanned_item, dst in _CYCLE.findall(observation):
+        if scanned_item != item:
+            continue
+        inv_patch[src] = None
+        inventory[src] = None
         inv_patch[dst] = item
         inventory[dst] = item
 
@@ -120,6 +131,7 @@ _HISTORY_EVENT = re.compile(
     r"|Another worker moved (item_\d{2}) from (shelf_\d{2}) to (shelf_\d{2})"
     r"|Success: Stored (item_\d{2}) on (shelf_\d{2})"
     r"|Success: Shipped (item_\d{2}) from (shelf_\d{2})"
+    r"|Cycle count: (item_\d{2}) is not on (shelf_\d{2})\. Floor scanner: item_\d{2} is on (shelf_\d{2})"
 )
 
 
@@ -156,6 +168,10 @@ def warehouse_history_policy(prompt: str) -> str:
                 pending.remove(item)
             if item not in shipped:
                 shipped.append(item)
+        elif g[9]:
+            item, src, dst = g[9], g[10], g[11]
+            inventory[src] = None
+            inventory[dst] = item
 
     if inbound:
         item = inbound[0]

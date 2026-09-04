@@ -33,8 +33,12 @@ Observations you will see:
   already happened in the real warehouse. Patch inventory so shelf_AA is
   null and shelf_BB holds the item. Do not MOVE it yourself. Then continue
   with STORE/SHIP/WAIT/DONE as appropriate.
-- Action success / error strings. Errors mean the world did not change;
-  fix your state if it drifted from the observation, then retry.
+- "Cycle count: item_NN is not on shelf_AA. Floor scanner: item_NN is on
+  shelf_BB." → the world moved without you. Patch inventory the same way
+  (AA null, BB = item). Do not MOVE. Then continue.
+- Action success / error strings. Errors mean the world did not change
+  and your last patch was not committed. Do not assume the action happened.
+  If O contradicts Σ, patch inventory to match O, then retry.
 
 State patch rules (critical):
 - Top-level keys of state_patch MUST be a subset of:

@@ -5,15 +5,20 @@ It emits throwaway reasoning R_t plus a JSON object
 ``{"state_patch": ΔΣ_t, "action": a_t}``.
 
 The runtime:
-  1. extracts and validates the JSON against the skill schema
-  2. applies Σ_{t+1} = Σ_t ⊕ ΔΣ_t  (deep merge; JSON null deletes)
-  3. executes a_t against the environment
-  4. discards R_t permanently — it never re-enters the next prompt
-  5. records prompt/completion tokens so we can prove O(1) prompt growth
+  1. extracts the JSON
+  2. validates ΔΣ_t against the skill schema on a COPY of Σ (live Σ unchanged)
+  3. validates action grammar
+  4. executes a_t against the environment
+  5. ONLY if the env accepted the action: commit Σ ← Σ ⊕ ΔΣ
+  6. discards R_t permanently — it never re-enters the next prompt
+  7. records prompt/completion tokens so we can prove O(1) prompt growth
 
-Validator failure: do not apply the patch, do not execute the action, retry
-once with the validator error as the next observation. Two consecutive
-failures end the episode as failed.
+Schema/JSON failure: do not merge, do not execute, retry once with the
+validator error as the next observation. Two consecutive schema failures
+end the episode as failed.
+
+Env rejection (grammar-valid action, valid=false): leave Σ unchanged, pass
+the env error as the next observation. That is not a schema failure.
 """
 
 from __future__ import annotations
@@ -62,6 +67,7 @@ def run_skill_state(
     consecutive_failures = 0
     failed = False
     fail_reason: str | None = None
+    extra: dict[str, Any] = {}
 
     def emit(event: dict[str, Any]) -> None:
         if on_event:
@@ -102,14 +108,18 @@ def run_skill_state(
                 raise PatchValidationError(
                     f"action does not match skill grammar: {output.action!r}"
                 )
-            new_state = apply_validated_patch(state, output.state_patch, state_schema)
+            # Schema-ok on a copy. Live Σ stays put until the env accepts a_t.
+            proposed_state = apply_validated_patch(
+                state, output.state_patch, state_schema
+            )
             patch = output.state_patch
             action = output.action
-            state = new_state
-            applied = True
             consecutive_failures = 0
             next_observation, done, info = env.step(action)
             env_error = not bool(info.get("valid", True))
+            if not env_error:
+                state = proposed_state
+                applied = True
         except (JsonExtractError, PatchValidationError) as exc:
             validation_error = str(exc)
             consecutive_failures += 1
@@ -154,6 +164,7 @@ def run_skill_state(
         steps.append(step)
         emit({"type": "step", "step": step.as_dict()})
 
+        _update_drift_recovery(env, state, t, extra)
         if done:
             break
         # Reasoning is discarded here: the next prompt is built from (P, Σ, O)
@@ -161,6 +172,18 @@ def run_skill_state(
         observation = next_observation
 
     success = (not failed) and bool(env.success())
+    extra["env"] = env.snapshot() if hasattr(env, "snapshot") else {}
+    rec = getattr(env, "silent_drift_record", None)
+    if rec:
+        extra.update(
+            {
+                "drift_step": rec.get("drift_step"),
+                "drifted_item": rec.get("drifted_item"),
+                "from_shelf": rec.get("from_shelf"),
+                "to_shelf": rec.get("to_shelf"),
+                "recovery_lag": extra.get("recovery_lag"),
+            }
+        )
     result = EpisodeResult(
         runtime="skillstate",
         skill=skill_name,
@@ -171,7 +194,42 @@ def run_skill_state(
         fail_reason=fail_reason,
         steps=steps,
         totals=totals,
-        extra={"env": env.snapshot() if hasattr(env, "snapshot") else {}},
+        extra=extra,
     )
     emit({"type": "done", "result": {k: v for k, v in result.as_dict().items() if k != "steps"}})
     return result
+
+
+def _item_shelf(inventory: Any, item: str) -> str | None:
+    if not isinstance(inventory, dict):
+        return None
+    for shelf, value in inventory.items():
+        if value == item:
+            return shelf
+    return None
+
+
+def _update_drift_recovery(
+    env: Any, state: dict[str, Any], step_index: int, extra: dict[str, Any]
+) -> None:
+    rec = getattr(env, "silent_drift_record", None)
+    if not rec:
+        return
+    extra.setdefault("drift_step", rec.get("drift_step"))
+    extra.setdefault("drifted_item", rec.get("drifted_item"))
+    extra.setdefault("from_shelf", rec.get("from_shelf"))
+    extra.setdefault("to_shelf", rec.get("to_shelf"))
+    if extra.get("recovery_lag") is not None:
+        return
+    drift_step = rec.get("drift_step")
+    item = rec.get("drifted_item")
+    if item is None or drift_step is None or step_index <= drift_step:
+        extra.setdefault("recovery_lag", None)
+        return
+    gt = env.snapshot() if hasattr(env, "snapshot") else {}
+    sigma_shelf = _item_shelf(state.get("inventory"), item)
+    gt_shelf = _item_shelf(gt.get("inventory"), item)
+    if sigma_shelf == gt_shelf:
+        extra["recovery_lag"] = step_index - drift_step
+    else:
+        extra.setdefault("recovery_lag", None)

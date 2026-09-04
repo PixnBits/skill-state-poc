@@ -54,6 +54,13 @@ def main(argv: list[str] | None = None) -> int:
             help="Use the scripted policy instead of Ollama (for tests/demos).",
         )
         p.add_argument("--compact", action="store_true", help="Short 5-event warehouse episode.")
+        p.add_argument(
+            "--drift-at",
+            type=int,
+            default=None,
+            metavar="STEP",
+            help="Warehouse only: silent MOVE after this step index (off by default).",
+        )
 
     wh = sub.add_parser("warehouse", help="Run the 24-shelf warehouse skill")
     add_run_flags(wh)
@@ -85,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             base_url=args.base_url,
             offline=args.offline,
             compact=getattr(args, "compact", False),
+            drift_at=getattr(args, "drift_at", None),
             console=console,
         )
         return 0
@@ -109,6 +117,8 @@ def _run_skill(name: str, args: argparse.Namespace) -> int:
     env_kwargs: dict[str, Any] = {"horizon": args.max_steps}
     if name == "warehouse":
         env_kwargs["compact"] = bool(args.compact)
+        if getattr(args, "drift_at", None) is not None:
+            env_kwargs["drift_at"] = args.drift_at
     env = skill.make_env(args.seed, **env_kwargs)
 
     console.rule(f"[bold]SKILL.state[/bold]  skill={name}  model={getattr(llm, 'model', model)}")
@@ -194,6 +204,14 @@ def _print_summary(result: EpisodeResult) -> None:
         f"max_prompt={t.max_prompt_tokens}  total_tokens={t.total}"
     )
     console.print(f"prompt curve: {t.prompt_curve}")
+    if result.extra.get("drift_step") is not None:
+        console.print(
+            "silent drift: "
+            f"step={result.extra.get('drift_step')} "
+            f"item={result.extra.get('drifted_item')} "
+            f"{result.extra.get('from_shelf')}→{result.extra.get('to_shelf')} "
+            f"recovery_lag={result.extra.get('recovery_lag')}"
+        )
 
 
 def _run_ui(args: argparse.Namespace) -> int:

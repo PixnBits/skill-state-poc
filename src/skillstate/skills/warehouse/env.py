@@ -136,6 +136,8 @@ class WarehouseEnv:
     n_actionable_events: int = 0
     n_valid_actions: int = 0
     n_invalid_actions: int = 0
+    drift_at: int | None = None
+    silent_drift_record: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed + 17)
@@ -161,6 +163,7 @@ class WarehouseEnv:
         self.n_valid_actions = 0
         self.n_invalid_actions = 0
         self.last_info = {}
+        self.silent_drift_record = None
         briefing = (
             f"Shift start. {self.n_shelves} shelves (shelf_00..shelf_23), "
             f"horizon {self.horizon} steps, seed {self.seed}. "
@@ -185,6 +188,10 @@ class WarehouseEnv:
 
         self.t += 1
         observation = _compose_observation(result, self._fire_event_at(self.t))
+        if self.drift_at is not None and (self.t - 1) == self.drift_at:
+            hint = self._silent_drift()
+            if hint:
+                observation = _join(observation, hint)
         succeeded = self.success()
         done = False
         if parsed is not None and parsed.op == "DONE" and succeeded:
@@ -225,6 +232,7 @@ class WarehouseEnv:
             "n_valid_actions": self.n_valid_actions,
             "n_invalid_actions": self.n_invalid_actions,
             "n_actionable_events": self.n_actionable_events,
+            "silent_drift": dict(self.silent_drift_record) if self.silent_drift_record else None,
         }
 
     def score(self) -> float:
@@ -250,6 +258,37 @@ class WarehouseEnv:
         if event.kind == "drift":
             return self._apply_drift()
         return None
+
+    def _silent_drift(self) -> str | None:
+        """Secret MOVE after step ``drift_at``. Not the announced ALERT event."""
+        if self.silent_drift_record is not None:
+            return None
+        pending_on_shelf = sorted(
+            (shelf, item)
+            for shelf, item in self.shelves.items()
+            if item is not None and item in self.pending_orders
+        )
+        occupied = sorted(
+            (shelf, item) for shelf, item in self.shelves.items() if item is not None
+        )
+        candidates = pending_on_shelf or occupied
+        empty = sorted(shelf for shelf, item in self.shelves.items() if item is None)
+        if not candidates or not empty:
+            return None
+        src, item = candidates[0]
+        dst = empty[0]
+        self.shelves[src] = None
+        self.shelves[dst] = item
+        self.silent_drift_record = {
+            "drift_step": self.t - 1,
+            "drifted_item": item,
+            "from_shelf": src,
+            "to_shelf": dst,
+        }
+        return (
+            f"Cycle count: {item} is not on {src}. "
+            f"Floor scanner: {item} is on {dst}."
+        )
 
     def _apply_drift(self) -> str:
         occupied = [(s, item) for s, item in self.shelves.items() if item is not None]

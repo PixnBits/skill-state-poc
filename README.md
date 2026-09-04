@@ -27,7 +27,7 @@ It writes throwaway chain-of-thought \(R_t\), then a JSON object with **exactly 
 }
 ```
 
-The runtime validates the patch against the skill schema, applies \(\Sigma_{t+1} = \Sigma_t \oplus \Delta\Sigma_t\) (deep merge; JSON `null` deletes that key), executes the action, and **discards \(R_t\)**. Next prompt does not contain prior observations, actions, or reasoning. Prompt size stays \(O(|P| + |\Sigma| + |O|)\).
+The runtime validates the patch against the skill schema **on a copy of \(\Sigma\)**, executes the action, and **commits \(\Sigma_{t+1} = \Sigma_t \oplus \Delta\Sigma_t\) only if the environment accepted the action** (deep merge; JSON `null` deletes that key). It then **discards \(R_t\)**. Next prompt does not contain prior observations, actions, or reasoning. Prompt size stays \(O(|P| + |\Sigma| + |O|)\).
 
 The `compare` command runs this against an honest ReAct-history baseline on the **same warehouse seed**. SKILL.state’s prompt-token curve must stay roughly flat. History must climb. If it doesn’t, the implementation is wrong.
 
@@ -162,23 +162,41 @@ Equivalent scripts: `uv run python scripts/demo_warehouse.py`, `uv run python sc
 uv run pytest
 ```
 
-No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, messy JSON extraction, and the flat-vs-growing prompt-curve proof.
+No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, env-reject desync (Σ unchanged), silent-drift recovery_lag, messy JSON extraction, and the flat-vs-growing prompt-curve proof.
 
 ## Architecture
 
-Algorithm 1 from the paper (`src/skillstate/runtime.py`):
+Algorithm 1 from the paper (`src/skillstate/runtime.py`), with a commit rule this PoC is strict about:
 
 1. Receive \(O_t\)
 2. Construct prompt \((P, \Sigma_t, O_t)\)
 3. Generate \((R_t, \Delta\Sigma_t, a_t)\)
-4. Validate \(\Delta\Sigma_t\) against the pydantic skill schema (`extra="forbid"`)
-5. \(\Sigma_{t+1} \leftarrow \Sigma_t \oplus \Delta\Sigma_t\)
+4. Validate \(\Delta\Sigma_t\) against the pydantic skill schema (`extra="forbid"`) on a **copy** of \(\Sigma\)
+5. Validate action grammar
 6. Execute \(a_t\)
-7. Drop \(R_t\)
+7. Commit \(\Sigma_{t+1} \leftarrow \Sigma_t \oplus \Delta\Sigma_t\) **only if** `info["valid"]` is true
+8. Drop \(R_t\)
 
 \(\oplus\) is RFC 7396 JSON Merge Patch (`src/skillstate/merge.py`): nested objects merge key-wise; arrays/scalars replace; JSON `null` deletes the key.
 
 **Documented schema exception:** a `null` under `inventory.shelf_NN` deletes that key in \(\oplus\), but an empty shelf is still a declared slot. `WarehouseState` fills missing `shelf_00..shelf_23` keys back in as `null`. Unknown shelf ids and unknown **top-level** keys still fail. This PoC does not use `extra="ignore"`.
+
+## State commit rule
+
+\(\Sigma\) is the model’s belief. The env is ground truth for physics. A grammar-valid action that the warehouse rejects (`STORE` onto an occupied shelf, `SHIP` from the wrong one) must **not** update \(\Sigma\). The next prompt is still \(A_t = (P, \Sigma_{\text{unchanged}}, O_{\text{env error}})\). Schema/JSON junk still never calls `env.step`.
+
+Do not “fix” desync by dumping the env into the prompt.
+
+## Drift recovery
+
+Paper Exp 3, miniature. Off by default.
+
+```bash
+uv run skillstate warehouse --max-steps 40 --seed 7 --drift-at 5
+uv run skillstate compare --max-steps 80 --seed 7 --drift-at 10
+```
+
+After step index \(N\) commits, the env secretly `MOVE`s one pending item to another empty shelf. The observation is a cycle-count / floor-scanner line, not `ALERT: Another worker moved…`. The agent must notice \(O\) contradicts \(\Sigma\) and patch `inventory`. The CLI prints `recovery_lag` (steps from the drift until \(\Sigma\) matches env ground truth for that item, or `null` if it never does).
 
 ## Warehouse skill
 

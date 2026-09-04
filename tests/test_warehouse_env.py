@@ -95,6 +95,30 @@ def test_compact_is_four_events():
     assert [e.kind for e in events] == ["receive", "receive", "order", "order"]
 
 
+def test_silent_drift_moves_pending_item_without_alert():
+    env = WarehouseEnv(seed=1, compact=True, horizon=8, drift_at=1)
+    env.reset()
+    env.step("STORE item_00 shelf_00")
+    obs, _, info = env.step("STORE item_01 shelf_01")
+    assert "Cycle count:" in obs
+    assert "Another worker moved" not in obs
+    rec = env.silent_drift_record
+    assert rec is not None
+    assert rec["drift_step"] == 1
+    assert env.shelves[rec["from_shelf"]] is None
+    assert env.shelves[rec["to_shelf"]] == rec["drifted_item"]
+    assert rec["drifted_item"] in env.pending_orders
+
+
+def test_silent_drift_off_by_default():
+    env = WarehouseEnv(seed=1, compact=True, horizon=8)
+    env.reset()
+    env.step("STORE item_00 shelf_00")
+    obs, _, _ = env.step("STORE item_01 shelf_01")
+    assert "Cycle count:" not in obs
+    assert env.silent_drift_record is None
+
+
 def test_empty_inventory_has_24_null_shelves():
     inv = empty_inventory()
     assert list(inv) == list(SHELF_IDS)

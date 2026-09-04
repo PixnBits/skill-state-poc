@@ -136,6 +136,138 @@ def test_history_grows_skillstate_stays_flat():
     assert hist.steps[0].observation in hist.steps[-1].prompt
 
 
+def _fence(patch: dict, action: str) -> str:
+    return "```json\n" + json.dumps({"state_patch": patch, "action": action}) + "\n```\n"
+
+
+def test_env_reject_does_not_commit_state():
+    """Grammar-valid STORE onto an occupied shelf must leave Σ untouched."""
+    skill = WarehouseSkill()
+    env = skill.make_env(1, compact=True, horizon=8)
+    store_ok = _fence(
+        {
+            "inventory": {"shelf_00": "item_00"},
+            "inbound": [],
+            "last_action": "STORE item_00 shelf_00",
+            "step": 1,
+        },
+        "STORE item_00 shelf_00",
+    )
+    store_conflict = _fence(
+        {
+            "inventory": {"shelf_00": "item_01"},
+            "inbound": [],
+            "last_action": "STORE item_01 shelf_00",
+            "step": 2,
+        },
+        "STORE item_01 shelf_00",
+    )
+    llm = SequenceLLM([store_ok, store_conflict])
+    result = run_skill_state(
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        state_schema=skill.state_schema,
+        initial_state=skill.initial_state(),
+        env=env,
+        llm=llm,
+        parse_action=skill.parse_action,
+        max_steps=2,
+        seed=1,
+        model="fake",
+    )
+    reject = result.steps[1]
+    assert reject.action == "STORE item_01 shelf_00"
+    assert reject.env_error
+    assert reject.validation_error is None
+    assert reject.state_after == reject.state_before
+    assert reject.state_after["inventory"]["shelf_00"] == "item_00"
+    assert env.shelves["shelf_00"] == "item_00"
+
+
+def test_successful_ship_still_merges():
+    result = _run_ss(FakeLLM(warehouse_skillstate_policy), compact=True, max_steps=8)
+    ships = [s for s in result.steps if s.action.startswith("SHIP")]
+    assert ships
+    first = ships[0]
+    assert first.env_error is False
+    assert first.validation_error is None
+    _op, item, shelf = first.action.split()
+    assert first.state_before["inventory"][shelf] == item
+    assert first.state_after["inventory"][shelf] is None
+    assert item in first.state_after["shipped"]
+    assert item not in first.state_after["pending_orders"]
+
+
+def test_validator_junk_does_not_call_env_step():
+    skill = WarehouseSkill()
+    inner = skill.make_env(1, compact=True, horizon=8)
+
+    class SpyEnv:
+        def __init__(self, wrapped):
+            self._env = wrapped
+            self.step_calls: list[str] = []
+
+        def reset(self):
+            return self._env.reset()
+
+        def step(self, action: str):
+            self.step_calls.append(action)
+            return self._env.step(action)
+
+        def success(self):
+            return self._env.success()
+
+        def snapshot(self):
+            return self._env.snapshot()
+
+    spy = SpyEnv(inner)
+    wait = _fence({"last_action": "WAIT", "step": 1}, "WAIT")
+    llm = SequenceLLM(["this is not json at all", wait])
+    result = run_skill_state(
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        state_schema=skill.state_schema,
+        initial_state=skill.initial_state(),
+        env=spy,
+        llm=llm,
+        parse_action=skill.parse_action,
+        max_steps=2,
+        seed=1,
+        model="fake",
+    )
+    assert result.steps[0].validation_error
+    assert result.steps[0].action == ""
+    assert spy.step_calls == ["WAIT"]
+
+
+def test_silent_drift_scripted_recovery_lag_is_one():
+    skill = WarehouseSkill()
+    env = skill.make_env(1, compact=True, horizon=8, drift_at=1)
+    result = run_skill_state(
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        state_schema=skill.state_schema,
+        initial_state=skill.initial_state(),
+        env=env,
+        llm=FakeLLM(warehouse_skillstate_policy),
+        parse_action=skill.parse_action,
+        max_steps=8,
+        seed=1,
+        model="fake",
+    )
+    assert result.extra.get("drift_step") == 1
+    assert result.extra.get("recovery_lag") == 1
+    item = result.extra["drifted_item"]
+    recovered = result.steps[2]
+    assert recovered.step == 2
+    sigma_shelf = next(
+        (s for s, v in recovered.state_after["inventory"].items() if v == item),
+        None,
+    )
+    gt_shelf = next((s for s, v in env.shelves.items() if v == item), None)
+    assert sigma_shelf == gt_shelf
+
+
 def test_scripted_policy_emits_two_key_json():
     skill = WarehouseSkill()
     env = skill.make_env(1, compact=True, horizon=8)
