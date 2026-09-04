@@ -134,7 +134,7 @@ OLLAMA_MODEL=llama3.1:8b uv run skillstate warehouse
 uv run skillstate warehouse --model qwen2.5:32b
 ```
 
-Same flags work for `ui` and `compare`. Temperature is hard-coded to `0.0`. No tool/function-calling.
+Same flags work for `ui` and `compare`. Temperature is hard-coded to `0.0`. Completions are capped at 2048 tokens so a grammar-failing ReAct dump cannot fill the 32k context. No tool/function-calling.
 
 ### 7. Compare mode (the actual proof)
 

@@ -696,6 +696,9 @@ def render_bench_md(payload: dict[str, Any]) -> str:
         "Ollama load; skillstate seed 7 is always first, so history seed 7 is warm "
         "on that model. Seed 21 cells are warm if the model stayed resident.",
         "- Offline-scripted is a harness check, not a live Table 2 row.",
+        "- Completions are capped at 2048 tokens (`max_tokens` on the Ollama "
+        "OpenAI-compat call). That is not a prompt-template change; it stops a "
+        "runaway ReAct dump from filling the 32k context.",
         "",
     ]
     return "\n".join(lines)

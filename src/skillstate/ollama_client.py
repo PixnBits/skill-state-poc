@@ -14,6 +14,9 @@ from skillstate.logging_util import estimate_tokens
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 DEFAULT_MODEL = "qwen2.5:14b"
+# Completions are a short R_t plus one JSON / Action line. Without a cap, a
+# grammar-failing ReAct dump can fill the 32k context (~hour at 9 tok/s).
+MAX_COMPLETION_TOKENS = 2048
 
 INSTALL_HELP = """
 Ollama is not reachable at {base}
@@ -136,6 +139,7 @@ class OllamaClient(LLMClient):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "stream": True,
+            "max_tokens": MAX_COMPLETION_TOKENS,
         }
         pieces: list[str] = []
         usage: dict[str, Any] = {}
