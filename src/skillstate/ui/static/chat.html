@@ -150,10 +150,10 @@
       <div class="thread" id="thread"></div>
       <div class="size">would-be prompt size (P + transcript + latest user): <strong id="histSize">—</strong> tokens</div>
       <div class="composer">
-        <textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline." disabled></textarea>
+        <textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline. You can draft while the assistant greets."></textarea>
         <div class="row">
-          <button class="primary" id="btnSend" disabled>Send</button>
-          <span class="hint" id="status">idle</span>
+          <button class="primary" id="btnSend">Send</button>
+          <span class="hint" id="status">starting…</span>
         </div>
       </div>
     </section>
@@ -194,6 +194,8 @@ let instructions = "";
 let reasonAcc = "";
 let priorForEstimate = [];
 let shownAssistant = false;
+let queuedSend = null;
+let sessionDone = false;
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -206,8 +208,10 @@ function setStatus(text, cls) {
 
 function setFlight(on) {
   inFlight = on;
-  $("btnSend").disabled = on || !started;
-  $("input").disabled = on || !started;
+  // Always allow drafting. Only lock Send while a model step is in flight
+  // or after DONE. Waiting on a 27B cold load must not freeze the box.
+  $("input").disabled = sessionDone;
+  $("btnSend").disabled = sessionDone || on;
   $("btnStart").disabled = on && started;
 }
 
@@ -373,30 +377,42 @@ function listen() {
       setFlight(false);
     } else if (msg.type === "awaiting_user") {
       awaiting = true;
+      sessionDone = false;
       setFlight(false);
-      $("input").disabled = false;
-      $("btnSend").disabled = false;
       $("input").focus();
-      setStatus("waiting for you");
+      setStatus("your turn");
+      if (queuedSend) {
+        const pending = queuedSend;
+        queuedSend = null;
+        $("input").value = pending;
+        send();
+      }
     } else if (msg.type === "done") {
       const r = msg.result || {};
-      setFlight(false);
       if (r.failed) {
+        sessionDone = false;
+        setFlight(false);
         $("btnRetry").disabled = false;
         setStatus("failed — Retry", "bad");
       } else {
+        sessionDone = true;
+        setFlight(false);
         setStatus(r.success ? "DONE" : "ended", r.success ? "ok" : "");
-        $("btnSend").disabled = true;
-        $("input").disabled = true;
       }
     } else if (msg.type === "error") {
       $("banner").textContent = msg.message;
       $("banner").classList.add("show");
-      setStatus("error", "bad");
+      setStatus("error — tick offline or Retry", "bad");
+      sessionDone = false;
       setFlight(false);
       $("btnRetry").disabled = false;
-    } else if (msg.type === "reset" || msg.type === "end") {
-      if (msg.type === "reset") resetView(false);
+    } else if (msg.type === "reset") {
+      resetView(false);
+      setFlight(false);
+    } else if (msg.type === "end") {
+      // Episode thread finished. Do not disable the composer — a leftover
+      // end from restarting the session used to grey out the box.
+      if (inFlight && !awaiting) setStatus("session ended", "bad");
       setFlight(false);
     }
   };
@@ -404,6 +420,9 @@ function listen() {
 
 function resetView(clearThread) {
   ssCurve = []; histCurve = []; reasonAcc = ""; priorForEstimate = [];
+  shownAssistant = false;
+  sessionDone = false;
+  awaiting = false;
   if (clearThread !== false) $("thread").innerHTML = "";
   $("state").textContent = "Σ_t waiting.";
   $("obs").textContent = "O_t — latest user message only";
@@ -415,6 +434,7 @@ function resetView(clearThread) {
   drawSpark();
   setStatus("idle");
   $("btnRetry").disabled = true;
+  setFlight(false);
 }
 
 async function start() {
@@ -441,12 +461,25 @@ async function start() {
     $("ptext").textContent = instructions;
   }
   setFlight(true);
-  setStatus("starting…");
+  setStatus("greeting… (27B can take a minute on first load; you can still type)");
 }
 
 async function send() {
   const text = $("input").value.trim();
-  if (!text || inFlight) return;
+  if (!text || sessionDone) return;
+  if (!started) {
+    queuedSend = text;
+    $("input").value = "";
+    setStatus("starting, then sending…");
+    await start();
+    return;
+  }
+  if (inFlight || !awaiting) {
+    queuedSend = text;
+    $("input").value = "";
+    setStatus("queued — sending when it is your turn");
+    return;
+  }
   lastUser = text;
   appendBubble("user", text);
   priorForEstimate.push(["user", text]);
@@ -492,11 +525,11 @@ async function retry() {
 
 $("btnStart").onclick = start;
 $("btnReset").onclick = async () => {
+  queuedSend = null;
   await fetch("/api/chat/reset", { method: "POST" });
   started = false;
   resetView(true);
-  $("input").disabled = true;
-  $("btnSend").disabled = true;
+  $("input").focus();
 };
 $("btnSend").onclick = send;
 $("btnRetry").onclick = retry;
@@ -535,8 +568,9 @@ async function health() {
     $("model").innerHTML = '<option value="' + DEFAULT_MODEL + '">' + DEFAULT_MODEL + "</option>";
   }
 }
-health();
+health().then(() => start());
 drawSpark();
+$("input").focus();
 </script>
 </body>
 </html>

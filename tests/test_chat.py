@@ -28,6 +28,9 @@ def test_chat_page_is_static_html():
     assert page.status_code == 200
     assert b"History (what ReAct would keep)" in page.content
     assert b"SKILL.state (what the model actually received)" in page.content
+    assert b'<textarea id="input"' in page.content
+    assert b'<textarea id="input" placeholder' in page.content
+    assert b'<textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline." disabled>' not in page.content
     home = client.get("/")
     assert b'href="/chat"' in home.content
     assert client.get("/episode").status_code == 200
