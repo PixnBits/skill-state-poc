@@ -2,7 +2,7 @@
 
 > **PARTIAL** — matrix stopped before every planned cell finished. Numbers below are from completed cells only.
 
-Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T08:09:24.465489+00:00. Commit `97c1651`.
+Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T08:48:30.871369+00:00. Commit `97c1651`.
 
 Protocol: warehouse `--max-steps 40 --drift-at 10` seeds `[7, 21]`. Per model: skillstate then history on seed 7, then the same on seed 21 (first cell of a model is cold-load; later cells on that model are warm).
 
@@ -19,14 +19,21 @@ These are this machine's numbers. Not the paper's 16× token table.
 | qwen2.5:14b | 14B | skillstate | 21 | no | no | null | 5 | 82.471 | 1030.2 | 1090 | 6291 | no |
 | qwen2.5:14b | 14B | history | 21 | yes | yes | 7 | 22 | 105.02 | 1744.1 | 2933 | 39901 | no |
 | qwen3.8:27b | 27B | skillstate | 7 | yes | yes | 1 | 20 | 976.75 | 1018.2 | 1038 | 24061 | yes |
+| qwen3.8:27b | 27B | history | 7 | yes | yes | 1 | 20 | 631.515 | 2268.3 | 3842 | 47961 | no |
+| qwen3.8:27b | 27B | skillstate | 21 | yes | yes | 1 | 18 | 862.52 | 1017.0 | 1039 | 21870 | no |
+| qwen3.8:27b | 27B | history | 21 | yes | yes | 6 | 18 | 539.007 | 2086.8 | 3422 | 39787 | no |
+| gemma4:26b | 26B | skillstate | 7 | no | no | null | 6 | 313.298 | 1032.3 | 1081 | 6731 | yes |
 | qwen2.5:14b | 14B | skillstate | mean | 0.0 | 0.0 | null | 4.5 | 72.3 | 1032.0 | 1089.50 | 5640 | — |
 | qwen2.5:14b | 14B | history | mean | 0.5 | 0.5 | 7.00 | 16.5 | 109.7 | 1626.0 | 2589 | 28890 | — |
+| qwen3.8:27b | 27B | skillstate | mean | 1.0 | 1.0 | 1.00 | 19.0 | 919.6 | 1017.6 | 1038.50 | 22966 | — |
+| qwen3.8:27b | 27B | history | mean | 1.0 | 1.0 | 3.50 | 19.0 | 585.3 | 2177.6 | 3632 | 43874 | — |
 
 ## Table 2 — cross-size headline pairs
 
 | smaller skillstate | larger history | seeds | success | recovery | wall_s ratio | token ratio | ss wins? |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| qwen2.5:14b skillstate | qwen3.8:27b history | — | *not run* | — | — | — | — |
+| qwen2.5:14b skillstate | qwen3.8:27b history | 7 | ss=False h=True match=False | ss=False h=True match=False | 0.099 | 0.104 | no |
+| qwen2.5:14b skillstate | qwen3.8:27b history | 21 | ss=False h=True match=False | ss=False h=True match=False | 0.153 | 0.158 | no |
 | qwen3.8:27b skillstate | gemma4:31b history | — | *not run* | — | — | — | — |
 | gemma4:26b skillstate | gemma4:31b history | — | *not run* | — | — | — | — |
 | qwen3.8:27b skillstate | qwen3.6:35b history | — | *not run* | — | — | — | — |
@@ -76,6 +83,12 @@ action: `SHIP item_00 shelf_02`
   "step": 12
 }
 ```
+
+### gemma4:26b seed=7
+
+reached_drift=False recovery_lag=None grammar_fail_count=3 delete_only=0 stale_location=0 correct_relocation=0 starved_correct=0 fail_reason="two consecutive validator failures: JSON must have exactly two keys: state_patch and action; got ['shelf_02']"
+
+No cycle-count observation (grammar abort before drift, or no drift).
 
 ## Caveats
 
