@@ -35,6 +35,7 @@ from skillstate.logging_util import (
     TokenTotals,
     diff_paths,
 )
+from skillstate.classify import classify_patch, item_shelf, summarize_episode
 from skillstate.ollama_client import LLMClient
 from skillstate.prompts import build_skill_state_prompt
 from skillstate.schemas import PatchValidationError, apply_validated_patch, validate_model_output
@@ -100,6 +101,7 @@ def run_skill_state(
         env_error = False
         done = False
         applied = False
+        proposed_state: dict[str, Any] | None = None
 
         try:
             obj, reasoning = extract_json_object(llm_result.text)
@@ -141,6 +143,9 @@ def run_skill_state(
 
         changed = diff_paths(state_before, state) if applied else []
         success_now = bool(env.success()) if not failed else False
+        proposed_item_shelf, patch_class = _classify_step(
+            env, proposed_state, validation_error, action
+        )
         step = StepResult(
             step=t,
             prompt=prompt,
@@ -159,6 +164,8 @@ def run_skill_state(
             done=done,
             success=success_now,
             totals=totals.as_dict(),
+            proposed_item_shelf=proposed_item_shelf,
+            patch_class=patch_class,
             runtime="skillstate",
         )
         steps.append(step)
@@ -196,8 +203,34 @@ def run_skill_state(
         totals=totals,
         extra=extra,
     )
+    result.extra["classifier"] = summarize_episode(result)
     emit({"type": "done", "result": {k: v for k, v in result.as_dict().items() if k != "steps"}})
     return result
+
+
+def _classify_step(
+    env: Any,
+    proposed_state: dict[str, Any] | None,
+    validation_error: str | None,
+    action: str,
+) -> tuple[str | None, str | None]:
+    rec = getattr(env, "silent_drift_record", None)
+    if not rec or not rec.get("drifted_item"):
+        if validation_error:
+            return None, "grammar_fail"
+        return None, None
+    item = rec["drifted_item"]
+    if validation_error or proposed_state is None:
+        return None, "grammar_fail"
+    shelf = item_shelf(proposed_state.get("inventory"), item)
+    label = classify_patch(
+        proposed_inventory=proposed_state.get("inventory"),
+        item=item,
+        from_shelf=rec.get("from_shelf") or "",
+        to_shelf=rec.get("to_shelf") or "",
+        action=action,
+    )
+    return shelf, label
 
 
 def _item_shelf(inventory: Any, item: str) -> str | None:

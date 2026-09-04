@@ -72,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     add_run_flags(cmp_)
     cmp_.set_defaults(max_steps=30)
 
+    sweep = sub.add_parser("sweep", help="Same warehouse+drift protocol across local Ollama models")
+    sweep.add_argument("--seed", type=int, default=7)
+    sweep.add_argument("--max-steps", type=int, default=40)
+    sweep.add_argument("--drift-at", type=int, default=10)
+    sweep.add_argument("--model", dest="models", action="append", default=None)
+    sweep.add_argument("--base-url", default=None)
+    sweep.add_argument("--offline", action="store_true")
+
     ui = sub.add_parser("ui", help="Serve the local dashboard at http://127.0.0.1:8000")
     ui.add_argument("--host", default=os.environ.get("SKILLSTATE_HOST", "127.0.0.1"))
     ui.add_argument("--port", type=int, default=int(os.environ.get("SKILLSTATE_PORT", "8000")))
@@ -96,6 +104,18 @@ def main(argv: list[str] | None = None) -> int:
             console=console,
         )
         return 0
+    if args.cmd == "sweep":
+        from skillstate.sweep import run_sweep
+
+        return run_sweep(
+            models=args.models,
+            seed=args.seed,
+            max_steps=args.max_steps,
+            drift_at=args.drift_at,
+            offline=args.offline,
+            base_url=args.base_url,
+            console=console,
+        )
     if args.cmd == "ui":
         return _run_ui(args)
     parser.error(f"unknown command {args.cmd}")
@@ -204,6 +224,17 @@ def _print_summary(result: EpisodeResult) -> None:
         f"max_prompt={t.max_prompt_tokens}  total_tokens={t.total}"
     )
     console.print(f"prompt curve: {t.prompt_curve}")
+    clf = result.extra.get("classifier") or {}
+    if clf:
+        console.print(
+            "classifier: "
+            f"reached_drift={clf.get('reached_drift')} "
+            f"grammar_fail_count={clf.get('grammar_fail_count')} "
+            f"delete_only={clf.get('delete_only')} "
+            f"stale_location={clf.get('stale_location')} "
+            f"correct_relocation={clf.get('correct_relocation')} "
+            f"starved_correct={clf.get('starved_correct')}"
+        )
     if result.extra.get("drift_step") is not None:
         console.print(
             "silent drift: "
