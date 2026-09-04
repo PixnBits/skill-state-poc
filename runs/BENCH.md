@@ -2,7 +2,7 @@
 
 > **PARTIAL** — matrix stopped before every planned cell finished. Numbers below are from completed cells only.
 
-Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T09:08:01.660745+00:00. Commit `97c1651`.
+Hardware: Framework Desktop, Ollama local, temperature 0.0. Date 2026-09-04T09:45:31.242143+00:00. Commit `97c1651`.
 
 Protocol: warehouse `--max-steps 40 --drift-at 10` seeds `[7, 21]`. Per model: skillstate then history on seed 7, then the same on seed 21 (first cell of a model is cold-load; later cells on that model are warm).
 
@@ -27,12 +27,15 @@ These are this machine's numbers. Not the paper's 16× token table.
 | gemma4:26b | 26B | skillstate | 21 | no | no | null | 7 | 262.037 | 1020.7 | 1081 | 7667 | no |
 | gemma4:26b | 26B | history | 21 | no | no | null | 7 | 216.714 | 1044.3 | 1219 | 7544 | no |
 | gemma4:31b | 31B | skillstate | 7 | no | no | null | 7 | 568.999 | 1037.9 | 1088 | 10613 | yes |
+| gemma4:31b | 31B | history | 7 | yes | yes | 1 | 20 | 738.489 | 2798.8 | 4996 | 59860 | no |
+| gemma4:31b | 31B | skillstate | 21 | yes | yes | 2 | 21 | 1511.05 | 1027.5 | 1136 | 29638 | no |
 | qwen2.5:14b | 14B | skillstate | mean | 0.0 | 0.0 | null | 4.5 | 72.3 | 1032.0 | 1089.50 | 5640 | — |
 | qwen2.5:14b | 14B | history | mean | 0.5 | 0.5 | 7.00 | 16.5 | 109.7 | 1626.0 | 2589 | 28890 | — |
 | qwen3.8:27b | 27B | skillstate | mean | 1.0 | 1.0 | 1.00 | 19.0 | 919.6 | 1017.6 | 1038.50 | 22966 | — |
 | qwen3.8:27b | 27B | history | mean | 1.0 | 1.0 | 3.50 | 19.0 | 585.3 | 2177.6 | 3632 | 43874 | — |
 | gemma4:26b | 26B | skillstate | mean | 0.0 | 0.0 | null | 6.5 | 287.7 | 1026.5 | 1081 | 7199 | — |
 | gemma4:26b | 26B | history | mean | 0.0 | 0.0 | null | 4.5 | 169.8 | 966.6 | 1081.50 | 4700 | — |
+| gemma4:31b | 31B | skillstate | mean | 0.5 | 0.5 | 2.00 | 14.0 | 1040.0 | 1032.7 | 1112 | 20126 | — |
 
 ## Table 2 — cross-size headline pairs
 
@@ -40,8 +43,8 @@ These are this machine's numbers. Not the paper's 16× token table.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | qwen2.5:14b skillstate | qwen3.8:27b history | 7 | ss=False h=True match=False | ss=False h=True match=False | 0.099 | 0.104 | no |
 | qwen2.5:14b skillstate | qwen3.8:27b history | 21 | ss=False h=True match=False | ss=False h=True match=False | 0.153 | 0.158 | no |
-| qwen3.8:27b skillstate | gemma4:31b history | — | *not run* | — | — | — | — |
-| gemma4:26b skillstate | gemma4:31b history | — | *not run* | — | — | — | — |
+| qwen3.8:27b skillstate | gemma4:31b history | 7 | ss=True h=True match=True | ss=True h=True match=True | 1.323 | 0.402 | yes |
+| gemma4:26b skillstate | gemma4:31b history | 7 | ss=False h=True match=False | ss=False h=True match=False | 0.424 | 0.112 | no |
 | qwen3.8:27b skillstate | qwen3.6:35b history | — | *not run* | — | — | — | — |
 
 A smaller skillstate model “wins” a pair if success and recovery are ≥ the larger history model and wall_s **or** total tokens are lower.
