@@ -126,6 +126,25 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 No Node, no React, no build step. FastAPI serves `src/skillstate/ui/static/index.html`.
 
+### Split-view chat demo
+
+A human chats with Ollama while the page shows, on every turn, a growing transcript versus the only context the weights actually received: \(A_t = (P, \Sigma_t, O_t)\).
+
+```bash
+uv run skillstate ui
+```
+
+Open [http://127.0.0.1:8000/chat](http://127.0.0.1:8000/chat). Default model is `qwen3.8:27b` (best accuracy in [`runs/BENCH.md`](runs/BENCH.md)). The dropdown is filled from local Ollama tags; the choice is stored in `localStorage`. Tick **offline** for two scripted turns with no Ollama.
+
+**What you should see:**
+
+- **Left — History (what ReAct would keep).** User / Assistant bubbles. This column is a *projection* of the same episode: it appends your line and the assistant’s `SAY`/`ASK`/`DONE` text. It is **not** sent to the model. Under the thread, a would-be prompt size (P + full transcript + latest user line) climbs as the chat grows.
+- **Right — SKILL.state (what the model actually received).** Collapsed P, \(\Sigma_t\) as formatted JSON (changed keys flash ~1s), \(O_t\) = the latest user utterance only, \(R_t\) streaming then stamped `discard`, then `state_patch` + `action`. Sparkline: this turn’s SKILL.state prompt tokens (amber, ~flat) vs the history-projection estimate (cyan, climbing).
+
+One SKILL.state loop. Do not read the left column as a second agent. Numbers for warehouse skillstate-vs-history are in [`runs/BENCH.md`](runs/BENCH.md); this demo does not claim a wall-clock speedup.
+
+The warehouse/repoops dashboard stays at `/` (also `/episode`).
+
 ### 6. Point at another model
 
 ```bash
@@ -162,7 +181,7 @@ Equivalent scripts: `uv run python scripts/demo_warehouse.py`, `uv run python sc
 uv run pytest
 ```
 
-No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, env-reject desync (Σ unchanged), silent-drift recovery_lag, messy JSON extraction, the flat-vs-growing prompt-curve proof, and the bench JSON schema (`wall_s >= 0` on both runtimes).
+No Ollama. Covers merge (nested overwrite, null-delete, unknown keys), the 24-shelf env, a 5-step fake-LLM episode, validator retry/abort, env-reject desync (Σ unchanged), silent-drift recovery_lag, messy JSON extraction, the flat-vs-growing prompt-curve proof, the bench JSON schema (`wall_s >= 0` on both runtimes), and the chat skill (grammar, extra=forbid, FakeLLM episode with no transcript leak into \(A_t\)).
 
 ## Architecture
 

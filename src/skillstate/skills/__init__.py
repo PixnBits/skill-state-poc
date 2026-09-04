@@ -34,7 +34,11 @@ def load_skill(name: str) -> Skill:
         from skillstate.skills.repoops import RepoOpsSkill
 
         return RepoOpsSkill()
-    raise KeyError(f"unknown skill {name!r}; expected 'warehouse' or 'repoops'")
+    if key in {"chat", "conversation"}:
+        from skillstate.skills.chat import ChatSkill
+
+        return ChatSkill()
+    raise KeyError(f"unknown skill {name!r}; expected 'warehouse', 'repoops', or 'chat'")
 
 
 PolicyFn = Callable[[str], str]

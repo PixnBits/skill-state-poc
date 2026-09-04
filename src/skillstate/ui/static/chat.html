@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SKILL.state · split-view chat</title>
+  <style>
+    :root {
+      --bg: #10140f;
+      --bg-2: #181e16;
+      --panel: #1c2419;
+      --line: #2d3a28;
+      --ink: #e6edd9;
+      --muted: #8fa080;
+      --amber: #e2b04a;
+      --amber-dim: rgba(226, 176, 74, 0.18);
+      --green: #8fce5b;
+      --red: #e06a5c;
+      --cyan: #7ec8c0;
+      --mono: "IBM Plex Mono", "ui-monospace", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+      --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+    body {
+      background-image:
+        radial-gradient(1200px 500px at 10% -10%, #24301f 0%, transparent 55%),
+        linear-gradient(180deg, #12170f 0%, #10140f 40%);
+    }
+    header {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 12px 18px; border-bottom: 1px solid var(--line);
+      background: rgba(16, 20, 15, 0.92); position: sticky; top: 0; z-index: 2;
+    }
+    .brand { display: flex; flex-direction: column; min-width: 200px; }
+    .brand h1 { margin: 0; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .legend {
+      flex: 1; font-size: 12px; color: var(--muted); max-width: 520px; line-height: 1.4;
+    }
+    .legend b { color: var(--ink); font-weight: 600; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, select, .chip, a.nav {
+      background: var(--bg-2); color: var(--ink); border: 1px solid var(--line);
+      padding: 7px 12px; border-radius: 4px; font: 13px var(--sans); cursor: pointer;
+      text-decoration: none;
+    }
+    a.nav { display: inline-block; }
+    button.primary { background: var(--amber); color: #1a1406; border-color: var(--amber); font-weight: 600; }
+    button:hover, a.nav:hover { border-color: var(--amber); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    select { min-width: 180px; }
+    label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
+    main {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      padding: 12px 18px 18px; height: calc(100vh - 78px);
+    }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; height: auto; } }
+    section.col {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+      display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    }
+    section h2 {
+      margin: 0; padding: 10px 12px; font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    }
+    section h2 b { color: var(--amber); font-weight: 600; letter-spacing: 0.08em; }
+    .thread { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .bubble { max-width: 92%; padding: 8px 10px; border-radius: 6px; font: 13px/1.45 var(--sans); white-space: pre-wrap; word-break: break-word; }
+    .bubble.user { align-self: flex-end; background: #24331f; border: 1px solid var(--line); }
+    .bubble.assistant { align-self: flex-start; background: #151b13; border: 1px solid var(--line); color: var(--ink); }
+    .bubble .who { font: 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    details.cot { margin-top: 6px; color: var(--muted); font: 11px/1.4 var(--mono); }
+    details.cot summary { cursor: pointer; color: #6d7d62; }
+    .composer { border-top: 1px solid var(--line); padding: 10px; background: #151b13; }
+    textarea {
+      width: 100%; min-height: 64px; resize: vertical; background: var(--bg); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 4px; padding: 8px; font: 13px/1.4 var(--sans);
+    }
+    .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+    .size {
+      font: 12px var(--mono); color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--line);
+    }
+    .size strong { color: var(--cyan); font-weight: 500; }
+    .right-body { flex: 1; overflow: auto; padding: 0; display: flex; flex-direction: column; min-height: 0; }
+    details.pblock { border-bottom: 1px solid var(--line); }
+    details.pblock summary { padding: 8px 12px; cursor: pointer; color: var(--muted); font: 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+    pre, .obs, .reason, .patch {
+      margin: 0; padding: 12px; overflow: auto;
+      font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word;
+    }
+    .obs { color: var(--cyan); border-bottom: 1px solid var(--line); }
+    .reason { color: #c8c2a8; font-style: italic; border-bottom: 1px solid var(--line); min-height: 72px; }
+    .stamp {
+      float: right; font-style: normal; font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--red); border: 1px solid var(--red);
+      padding: 2px 6px; border-radius: 2px;
+    }
+    .stamp.live { color: var(--amber); border-color: var(--amber); }
+    .key-changed {
+      background: var(--amber); color: #1a1406; border-radius: 2px;
+      animation: flash 1s ease forwards;
+    }
+    @keyframes flash {
+      0% { background: var(--amber); color: #1a1406; }
+      100% { background: var(--amber-dim); color: var(--amber); }
+    }
+    .action-box {
+      border-top: 1px solid var(--line); padding: 10px 12px; font: 13px var(--mono);
+      background: #151b13;
+    }
+    .action-box span { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+    canvas { width: 100%; height: 92px; display: block; background: #141a12; border-top: 1px solid var(--line); }
+    .banner {
+      display: none; margin: 10px 18px 0; padding: 10px 12px; border: 1px solid var(--red);
+      background: #2a1513; color: #f0c7c2; font: 12px/1.45 var(--mono); white-space: pre-wrap;
+    }
+    .banner.show { display: block; }
+    .ok { color: var(--green); }
+    .bad { color: var(--red); }
+    .hint { font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>SKILL.state chat</h1>
+      <span>A_t = (P, Σ_t, O_t) · one loop, two views</span>
+    </div>
+    <div class="legend">
+      <b>Left is the conversation.</b> Right is the only context the weights saw.
+      The model never receives the growing transcript.
+    </div>
+    <div class="controls">
+      <a class="nav" href="/">Episode dashboard</a>
+      <label>model
+        <select id="model"></select>
+      </label>
+      <label><input id="offline" type="checkbox" /> offline</label>
+      <button class="primary" id="btnStart">Start</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnRetry" disabled>Retry</button>
+    </div>
+  </header>
+  <div id="banner" class="banner"></div>
+  <main>
+    <section class="col">
+      <h2><span>History (what ReAct would keep)</span><b>projection only</b></h2>
+      <div class="thread" id="thread"></div>
+      <div class="size">would-be prompt size (P + transcript + latest user): <strong id="histSize">—</strong> tokens</div>
+      <div class="composer">
+        <textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline." disabled></textarea>
+        <div class="row">
+          <button class="primary" id="btnSend" disabled>Send</button>
+          <span class="hint" id="status">idle</span>
+        </div>
+      </div>
+    </section>
+    <section class="col">
+      <h2><span>SKILL.state (what the model actually received)</span><b id="tokCmp">tokens</b></h2>
+      <div class="right-body">
+        <details class="pblock" id="pwrap">
+          <summary>P · skill instructions (collapsed)</summary>
+          <pre id="ptext">Start a chat to load P.</pre>
+        </details>
+        <pre id="state">Σ_t waiting.</pre>
+        <div class="obs" id="obs">O_t — latest user message only</div>
+        <div class="reason" id="reason"><span class="stamp">discard</span>R_t will stream here, then be discarded.</div>
+        <div class="action-box">
+          <span>state_patch</span>
+          <div class="patch" id="patch">—</div>
+        </div>
+        <div class="action-box">
+          <span>action</span>
+          <div id="action">—</div>
+        </div>
+      </div>
+      <canvas id="spark" height="92"></canvas>
+    </section>
+  </main>
+<script>
+const $ = (id) => document.getElementById(id);
+const MODEL_KEY = "skillstate.chat.model";
+const DEFAULT_MODEL = "qwen3.8:27b";
+let es = null;
+let inFlight = false;
+let awaiting = false;
+let started = false;
+let lastUser = "";
+let ssCurve = [];
+let histCurve = [];
+let instructions = "";
+let reasonAcc = "";
+let priorForEstimate = [];
+let shownAssistant = false;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+}
+
+function setStatus(text, cls) {
+  $("status").textContent = text;
+  $("status").className = "hint " + (cls || "");
+}
+
+function setFlight(on) {
+  inFlight = on;
+  $("btnSend").disabled = on || !started;
+  $("input").disabled = on || !started;
+  $("btnStart").disabled = on && started;
+}
+
+function appendBubble(role, text, reasoning) {
+  const div = document.createElement("div");
+  div.className = "bubble " + role;
+  let html = '<div class="who">' + (role === "user" ? "User" : "Assistant") + "</div>" + escapeHtml(text);
+  if (role === "assistant" && reasoning) {
+    html += '<details class="cot"><summary>discarded CoT</summary>' + escapeHtml(reasoning) + "</details>";
+  }
+  div.innerHTML = html;
+  $("thread").appendChild(div);
+  $("thread").scrollTop = $("thread").scrollHeight;
+}
+
+function formatJson(value, path, changed) {
+  if (value === null) return '<span style="color:#e06a5c">null</span>';
+  if (typeof value === "string") return '<span style="color:#c8e39a">"' + escapeHtml(value) + '"</span>';
+  if (typeof value === "number" || typeof value === "boolean") return '<span style="color:#7ec8c0">' + value + "</span>";
+  if (Array.isArray(value)) {
+    if (!value.length) return "[]";
+    return "[" + value.map((v) => formatJson(v, path, changed)).join(", ") + "]";
+  }
+  const keys = Object.keys(value);
+  if (!keys.length) return "{}";
+  const lines = keys.map((k) => {
+    const child = path ? path + "." + k : k;
+    const hl = changed.has(child) || [...changed].some((p) => p === k || p.startsWith(child + "."));
+    const keyHtml = hl ? '<span class="key-changed">"' + escapeHtml(k) + '"</span>' : '"' + escapeHtml(k) + '"';
+    return "  " + keyHtml + ": " + indent(formatJson(value[k], child, changed), 1);
+  });
+  return "{\n" + lines.join(",\n") + "\n}";
+}
+function indent(s, n) {
+  if (!s.includes("\n")) return s;
+  const pad = "  ".repeat(n);
+  return s.split("\n").map((line, i) => (i === 0 ? line : pad + line)).join("\n");
+}
+
+function renderState(state, changed) {
+  $("state").innerHTML = formatJson(state || {}, "", new Set(changed || []));
+}
+
+function drawSpark() {
+  const c = $("spark");
+  const ctx = c.getContext("2d");
+  const w = c.width = c.clientWidth * devicePixelRatio;
+  const h = c.height = 92 * devicePixelRatio;
+  const dpr = devicePixelRatio;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#141a12";
+  ctx.fillRect(0, 0, w, h);
+  ctx.font = 11 * dpr + "px ui-monospace, monospace";
+  ctx.fillStyle = "#e2b04a";
+  ctx.fillText("A_t prompt", 10 * dpr, 16 * dpr);
+  ctx.fillStyle = "#7ec8c0";
+  ctx.fillText("history would-be", 110 * dpr, 16 * dpr);
+  const values = ssCurve.length >= histCurve.length ? ssCurve : histCurve;
+  if (!values.length) return;
+  const max = Math.max(...ssCurve, ...histCurve, 1);
+  const min = 0;
+  const span = Math.max(max - min, 1);
+  const plot = (arr, color) => {
+    if (!arr.length) return;
+    ctx.beginPath();
+    arr.forEach((v, i) => {
+      const x = (i / Math.max(arr.length - 1, 1)) * (w - 24 * dpr) + 12 * dpr;
+      const y = h - 12 * dpr - ((v - min) / span) * (h - 36 * dpr);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * dpr;
+    ctx.stroke();
+  };
+  plot(histCurve, "#7ec8c0");
+  plot(ssCurve, "#e2b04a");
+  const lastSs = ssCurve[ssCurve.length - 1];
+  const lastH = histCurve[histCurve.length - 1];
+  ctx.fillStyle = "#e6edd9";
+  ctx.fillText((lastSs ?? "—") + " vs " + (lastH ?? "—"), w - 110 * dpr, 16 * dpr);
+}
+
+function estimateLocal() {
+  const draft = $("input").value;
+  const hist = priorForEstimate.map(([role, text]) =>
+    (role === "user" ? "User: " : "Assistant: ") + text
+  ).join("\n") || "(none)";
+  const blob = (instructions || "") + "\n\nHistory:\n" + hist + "\n\nLatest Observation: " + (draft || "");
+  const est = Math.max(1, Math.floor((blob.length + 3) / 4));
+  if (!inFlight) $("histSize").textContent = est + " (live estimate)";
+}
+
+function listen() {
+  if (es) es.close();
+  es = new EventSource("/api/chat/stream");
+  es.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "token") {
+      reasonAcc += msg.text || "";
+      $("reason").innerHTML = '<span class="stamp live">streaming</span>' + escapeHtml(reasonAcc);
+      $("reason").scrollTop = $("reason").scrollHeight;
+    } else if (msg.type === "prompt") {
+      reasonAcc = "";
+      $("obs").textContent = msg.observation || "—";
+      if (msg.state_before || msg.state) renderState(msg.state_before || msg.state, []);
+      if (msg.prompt_history_projection) {
+        $("histSize").textContent = (msg.history_prompt_tokens_est || "—") + " (this A_t vs would-be)";
+      }
+      $("reason").innerHTML = '<span class="stamp live">streaming</span>';
+      setFlight(true);
+      awaiting = false;
+      shownAssistant = false;
+      $("btnRetry").disabled = true;
+    } else if (msg.type === "action_ready") {
+      reasonAcc = msg.reasoning || reasonAcc;
+      $("reason").innerHTML = '<span class="stamp">discard</span>' + escapeHtml(reasonAcc || "—");
+      $("obs").textContent = msg.observation || "—";
+      $("action").textContent = msg.action || "—";
+      $("patch").textContent = JSON.stringify(msg.state_patch || {}, null, 2);
+      renderState(msg.proposed_state || {}, Object.keys(msg.state_patch || {}));
+      if (msg.assistant_text && !shownAssistant) {
+        appendBubble("assistant", msg.assistant_text, msg.reasoning);
+        priorForEstimate.push(["assistant", msg.assistant_text]);
+        shownAssistant = true;
+      }
+      if (msg.prompt_tokens != null) {
+        ssCurve.push(Number(msg.prompt_tokens) || 0);
+        histCurve.push(Number(msg.history_prompt_tokens_est) || 0);
+        drawSpark();
+        $("tokCmp").textContent = "A_t " + (msg.prompt_tokens ?? "—") + " · history ~" + (msg.history_prompt_tokens_est ?? "—");
+        $("histSize").textContent = (msg.history_prompt_tokens_est ?? "—");
+      }
+    } else if (msg.type === "step") {
+      const err = msg.validation_error;
+      reasonAcc = msg.reasoning || "";
+      $("reason").innerHTML = '<span class="stamp">discard</span>' + escapeHtml(reasonAcc || "—");
+      $("obs").textContent = msg.observation || "—";
+      $("action").textContent = msg.action || (err ? "∅ validator rejected" : "—");
+      $("patch").textContent = JSON.stringify(msg.state_patch || {}, null, 2);
+      renderState(msg.state_after, msg.changed_keys || []);
+      if (msg.prompt_tokens != null && !shownAssistant) {
+        ssCurve.push(Number(msg.prompt_tokens) || 0);
+        histCurve.push(Number(msg.history_prompt_tokens_est) || 0);
+        drawSpark();
+      }
+      $("tokCmp").textContent = "A_t " + (msg.prompt_tokens ?? "—") + " · history ~" + (msg.history_prompt_tokens_est ?? "—");
+      $("histSize").textContent = (msg.history_prompt_tokens_est ?? "—");
+      if (err) {
+        $("banner").textContent = err;
+        $("banner").classList.add("show");
+        $("btnRetry").disabled = false;
+        setStatus("validator error — Retry re-sends the last user line", "bad");
+        shownAssistant = false;
+      } else {
+        $("banner").classList.remove("show");
+        $("btnRetry").disabled = true;
+        if (msg.assistant_text && !shownAssistant) {
+          appendBubble("assistant", msg.assistant_text, msg.reasoning);
+          priorForEstimate.push(["assistant", msg.assistant_text]);
+        }
+        shownAssistant = false;
+      }
+      setFlight(false);
+    } else if (msg.type === "awaiting_user") {
+      awaiting = true;
+      setFlight(false);
+      $("input").disabled = false;
+      $("btnSend").disabled = false;
+      $("input").focus();
+      setStatus("waiting for you");
+    } else if (msg.type === "done") {
+      const r = msg.result || {};
+      setFlight(false);
+      if (r.failed) {
+        $("btnRetry").disabled = false;
+        setStatus("failed — Retry", "bad");
+      } else {
+        setStatus(r.success ? "DONE" : "ended", r.success ? "ok" : "");
+        $("btnSend").disabled = true;
+        $("input").disabled = true;
+      }
+    } else if (msg.type === "error") {
+      $("banner").textContent = msg.message;
+      $("banner").classList.add("show");
+      setStatus("error", "bad");
+      setFlight(false);
+      $("btnRetry").disabled = false;
+    } else if (msg.type === "reset" || msg.type === "end") {
+      if (msg.type === "reset") resetView(false);
+      setFlight(false);
+    }
+  };
+}
+
+function resetView(clearThread) {
+  ssCurve = []; histCurve = []; reasonAcc = ""; priorForEstimate = [];
+  if (clearThread !== false) $("thread").innerHTML = "";
+  $("state").textContent = "Σ_t waiting.";
+  $("obs").textContent = "O_t — latest user message only";
+  $("reason").innerHTML = '<span class="stamp">discard</span>R_t will stream here, then be discarded.';
+  $("patch").textContent = "—";
+  $("action").textContent = "—";
+  $("histSize").textContent = "—";
+  $("tokCmp").textContent = "tokens";
+  drawSpark();
+  setStatus("idle");
+  $("btnRetry").disabled = true;
+}
+
+async function start() {
+  resetView(true);
+  $("banner").classList.remove("show");
+  started = true;
+  listen();
+  const model = $("model").value.trim() || DEFAULT_MODEL;
+  localStorage.setItem(MODEL_KEY, model);
+  const r = await fetch("/api/chat/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ skill: "chat", model, offline: $("offline").checked }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    $("banner").textContent = j.detail || JSON.stringify(j);
+    $("banner").classList.add("show");
+    started = false;
+    return;
+  }
+  if (j.instructions) {
+    instructions = j.instructions;
+    $("ptext").textContent = instructions;
+  }
+  setFlight(true);
+  setStatus("starting…");
+}
+
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || inFlight) return;
+  lastUser = text;
+  appendBubble("user", text);
+  priorForEstimate.push(["user", text]);
+  $("input").value = "";
+  $("obs").textContent = text;
+  estimateLocal();
+  setFlight(true);
+  setStatus("thinking…");
+  const r = await fetch("/api/chat/message", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    $("banner").textContent = j.detail || await r.text();
+    $("banner").classList.add("show");
+    setFlight(false);
+    $("btnRetry").disabled = false;
+  }
+}
+
+async function retry() {
+  if (!lastUser) {
+    start();
+    return;
+  }
+  $("banner").classList.remove("show");
+  setFlight(true);
+  setStatus("retrying last user line…");
+  const r = await fetch("/api/chat/message", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ text: lastUser }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    $("banner").textContent = j.detail || "retry failed";
+    $("banner").classList.add("show");
+    setFlight(false);
+  }
+}
+
+$("btnStart").onclick = start;
+$("btnReset").onclick = async () => {
+  await fetch("/api/chat/reset", { method: "POST" });
+  started = false;
+  resetView(true);
+  $("input").disabled = true;
+  $("btnSend").disabled = true;
+};
+$("btnSend").onclick = send;
+$("btnRetry").onclick = retry;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+$("input").addEventListener("input", estimateLocal);
+$("model").addEventListener("change", () => localStorage.setItem(MODEL_KEY, $("model").value));
+
+async function health() {
+  const saved = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
+  try {
+    const r = await fetch("/api/health");
+    const j = await r.json();
+    const models = j.models || [];
+    const sel = $("model");
+    sel.innerHTML = "";
+    const want = models.includes(saved) ? saved : (models.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : (models[0] || saved));
+    const seen = new Set();
+    [want, DEFAULT_MODEL, ...models].forEach((m) => {
+      if (!m || seen.has(m)) return;
+      seen.add(m);
+      const opt = document.createElement("option");
+      opt.value = m; opt.textContent = m;
+      if (m === want) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (!j.ok) {
+      $("banner").textContent = j.install_help || "Ollama is down. Tick offline to use the scripted policy.";
+      $("banner").classList.add("show");
+    }
+  } catch (e) {
+    $("model").innerHTML = '<option value="' + DEFAULT_MODEL + '">' + DEFAULT_MODEL + "</option>";
+  }
+}
+health();
+drawSpark();
+</script>
+</body>
+</html>

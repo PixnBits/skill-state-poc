@@ -289,3 +289,63 @@ def repoops_skillstate_policy(prompt: str) -> str:
     patch["last_action"] = action
     payload = {"state_patch": patch, "action": action}
     return reasoning + "\n```json\n" + json.dumps(payload) + "\n```\n"
+
+
+_NAME = re.compile(r"my name is ([A-Za-z][\w-]{0,31})", re.IGNORECASE)
+
+
+def chat_skillstate_policy(prompt: str) -> str:
+    """Two-turn canned chat policy for offline /chat and pytest."""
+    state, observation = parse_skill_state_prompt(prompt)
+    facts = [str(f) for f in (state.get("facts") or []) if str(f).strip()]
+    goal = str(state.get("goal") or "")
+    questions = [str(q) for q in (state.get("open_questions") or []) if str(q).strip()]
+    decisions = [str(d) for d in (state.get("decisions") or []) if str(d).strip()]
+    tone = str(state.get("tone") or "direct")
+
+    if observation.startswith("VALIDATOR ERROR"):
+        action = "SAY Hello. What would you like to work on?"
+        reasoning = "Validator rejected the last payload; emit a legal SAY."
+    elif "start of a conversation" in observation:
+        action = "SAY Hello. What would you like to work on?"
+        reasoning = "Opening turn: greet and ask."
+        questions = ["what does the user want?"]
+    elif re.search(r"\b(goodbye|that's enough|that is enough|done)\b", observation, re.I):
+        action = "DONE Glad we could talk."
+        reasoning = "User asked to stop; DONE."
+        questions = []
+        decisions = decisions + ["ended_by_user"]
+    else:
+        named = _NAME.search(observation)
+        if named:
+            name = named.group(1)
+            facts = [f for f in facts if not f.lower().startswith("user_name=")]
+            facts.append(f"user_name={name}")
+        want = re.search(r"\b(?:want|need|looking for)\b(.{0,60})", observation, re.I)
+        if want and not goal:
+            goal = want.group(1).strip(" .,:;")[:80]
+        remembered = next(
+            (f.split("=", 1)[1] for f in facts if f.lower().startswith("user_name=")),
+            "",
+        )
+        if remembered and re.search(r"\b(what(?:'s| is) my name)\b", observation, re.I):
+            action = f"SAY Your name is {remembered}."
+            reasoning = "O asks for a fact already in Σ; answer from Σ."
+        else:
+            action = (
+                f"SAY I have that. Tell me if you want to change anything "
+                f"or say that's enough."
+            )
+            reasoning = "Record facts from O; do not keep the utterance itself."
+        questions = []
+
+    patch: dict[str, Any] = {
+        "goal": goal,
+        "facts": facts,
+        "open_questions": questions,
+        "decisions": decisions,
+        "tone": tone,
+        "last_action": action,
+    }
+    payload = {"state_patch": patch, "action": action}
+    return reasoning + "\n```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```\n"

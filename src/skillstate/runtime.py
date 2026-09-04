@@ -120,6 +120,23 @@ def run_skill_state(
             patch = output.state_patch
             action = output.action
             consecutive_failures = 0
+            # Chat env.step may block until the next human line. Emit the
+            # accepted payload first so the UI can show SAY/ASK without
+            # waiting. Live Σ is still committed only if env.step is valid.
+            emit(
+                {
+                    "type": "action_ready",
+                    "action": action,
+                    "state_patch": patch,
+                    "proposed_state": proposed_state,
+                    "reasoning": reasoning,
+                    "observation": observation,
+                    "prompt": prompt,
+                    "prompt_tokens": llm_result.prompt_tokens,
+                    "completion_tokens": llm_result.completion_tokens,
+                    "totals": totals.as_dict(),
+                }
+            )
             next_observation, done, info = env.step(action)
             env_error = not bool(info.get("valid", True))
             if not env_error:

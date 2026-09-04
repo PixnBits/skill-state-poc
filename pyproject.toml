@@ -40,4 +40,6 @@ packages = ["src/skillstate"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/skillstate/skills/warehouse/skill.md" = "skillstate/skills/warehouse/skill.md"
 "src/skillstate/skills/repoops/skill.md" = "skillstate/skills/repoops/skill.md"
+"src/skillstate/skills/chat/skill.md" = "skillstate/skills/chat/skill.md"
 "src/skillstate/ui/static/index.html" = "skillstate/ui/static/index.html"
+"src/skillstate/ui/static/chat.html" = "skillstate/ui/static/chat.html"
