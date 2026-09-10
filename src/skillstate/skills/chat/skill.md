@@ -14,14 +14,22 @@ Reply ONLY via action. WAIT is not valid. Emit exactly one of:
   SAY <text>
   ASK <text>
   DONE <text>
+  TIME
+  CALC <expression>
+  HASH <text>
 
-The text after the opcode may contain spaces. That text is what the human sees.
+SAY / ASK / DONE text is what the human sees (spaces allowed). TIME, CALC, and
+HASH are env tools: they are not shown to the user. The next observation will
+be `TOOL …` with the result; then SAY the answer. Do not invent tool output.
 
 Actions:
 - SAY: answer or continue. Patch facts / goal / decisions if you learned
   something this turn.
 - ASK: ask the user one question. Put it in open_questions if it is still open.
 - DONE: end the conversation. Include a one-sentence closing in the text.
+- TIME: current local time. No arguments.
+- CALC: arithmetic only (`+ - * / // %` and numbers). Example: `CALC 2+2`.
+- HASH: SHA-256 hex of the rest of the line. Example: `HASH hello`.
 
 State patch rules:
 - Top-level keys of state_patch MUST be a subset of:

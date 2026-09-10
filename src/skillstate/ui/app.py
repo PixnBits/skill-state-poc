@@ -32,6 +32,7 @@ from skillstate.policies import (
 from skillstate.runtime import run_skill_state
 from skillstate.skills import load_skill
 from skillstate.skills.chat.env import (
+    TALK_OPS,
     ChatEnv,
     parse_chat_action,
     project_history_prompt,
@@ -337,7 +338,10 @@ class ChatSession:
         if kind == "action_ready":
             action = event.get("action") or ""
             parsed = parse_chat_action(action) if action else None
-            event["assistant_text"] = parsed.text if parsed else None
+            event["assistant_text"] = (
+                parsed.text if parsed and parsed.op in TALK_OPS else None
+            )
+            event["tool_pending"] = bool(parsed and parsed.is_tool)
             event["prompt_skillstate"] = event.get("prompt") or ""
             obs = event.get("observation") or ""
             projection = project_history_prompt(self.instructions, self.prior_lines, obs)
@@ -360,7 +364,10 @@ class ChatSession:
         validation_error = raw.get("validation_error")
         action = raw.get("action") or ""
         parsed = parse_chat_action(action) if action and not validation_error else None
-        assistant_text = parsed.text if parsed else None
+        assistant_text = parsed.text if parsed and parsed.op in TALK_OPS else None
+        tool = None
+        if parsed and parsed.is_tool and self.env is not None:
+            tool = getattr(self.env, "last_tool", None)
         if not validation_error:
             if (
                 self.last_user_text
@@ -388,6 +395,7 @@ class ChatSession:
                 "state_patch": raw.get("state_patch") or {},
                 "action": action,
                 "assistant_text": assistant_text,
+                "tool": tool,
                 "totals": raw.get("totals") or {},
                 "validation_error": validation_error,
                 "done": raw.get("done"),

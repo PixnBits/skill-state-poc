@@ -1,20 +1,38 @@
-"""Chat env: the next observation is the next human line, not a world tick."""
+"""Chat env: the next observation is the next human line, not a world tick.
+
+Tools are skill *actions* (one command per step), not Ollama function-calling.
+TIME / CALC / HASH run in the env and return their result as the next O_t
+so the model can SAY it. The human is not blocked for those turns.
+"""
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import operator
 import queue
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 
 from skillstate.logging_util import estimate_tokens
 from skillstate.skills.chat.schema import initial_chat_state
 
-Op = Literal["SAY", "ASK", "DONE"]
+Op = Literal["SAY", "ASK", "DONE", "TIME", "CALC", "HASH"]
+TALK_OPS = frozenset({"SAY", "ASK", "DONE"})
+TOOL_OPS = frozenset({"TIME", "CALC", "HASH"})
 
-_ACTION_RE = re.compile(r"^(SAY|ASK|DONE) (.+)$", re.DOTALL)
 _STOP = object()
+_CALC_BIN = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Mod: operator.mod,
+    ast.FloorDiv: operator.floordiv,
+}
 
 OnWait = Callable[[dict[str, Any]], None]
 
@@ -24,24 +42,65 @@ class ChatAction:
     op: Op
     text: str
     raw: str
+    is_tool: bool = False
 
 
 def parse_chat_action(command: str) -> ChatAction | None:
     if not command or not isinstance(command, str):
         return None
     stripped = command.strip()
-    if stripped.upper() == "WAIT":
+    if not stripped or stripped.upper() == "WAIT":
         return None
-    match = _ACTION_RE.match(stripped)
-    if not match:
-        return None
-    op = match.group(1).upper()
-    text = match.group(2).strip()
-    if not text:
-        return None
-    if op not in {"SAY", "ASK", "DONE"}:
-        return None
-    return ChatAction(op=op, text=text, raw=f"{op} {text}")  # type: ignore[arg-type]
+    op, _, rest = stripped.partition(" ")
+    op = op.upper()
+    text = rest.strip()
+    if op == "TIME" and not text:
+        return ChatAction(op="TIME", text="", raw="TIME", is_tool=True)
+    if op == "CALC" and text:
+        return ChatAction(op="CALC", text=text, raw=f"CALC {text}", is_tool=True)
+    if op == "HASH" and text:
+        return ChatAction(op="HASH", text=text, raw=f"HASH {text}", is_tool=True)
+    if op in TALK_OPS and text:
+        return ChatAction(op=op, text=text, raw=f"{op} {text}", is_tool=False)  # type: ignore[arg-type]
+    return None
+
+
+def _eval_calc(node: ast.AST) -> float | int:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(
+        node.value, bool
+    ):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _eval_calc(node.operand)
+        return value if isinstance(node.op, ast.UAdd) else -value
+    if isinstance(node, ast.BinOp) and type(node.op) in _CALC_BIN:
+        left = _eval_calc(node.left)
+        right = _eval_calc(node.right)
+        return _CALC_BIN[type(node.op)](left, right)
+    if isinstance(node, ast.Expression):
+        return _eval_calc(node.body)
+    raise ValueError("only + - * / // % and numbers are allowed")
+
+
+def run_chat_tool(parsed: ChatAction) -> tuple[bool, str]:
+    """Return (ok, result_text). Never raises."""
+    if parsed.op == "TIME":
+        return True, datetime.now().astimezone().isoformat(timespec="seconds")
+    if parsed.op == "HASH":
+        digest = hashlib.sha256(parsed.text.encode("utf-8")).hexdigest()
+        return True, digest
+    if parsed.op == "CALC":
+        if len(parsed.text) > 120:
+            return False, "expression too long"
+        try:
+            tree = ast.parse(parsed.text, mode="eval")
+            value = _eval_calc(tree)
+        except Exception as exc:  # noqa: BLE001 — surface as a tool error observation
+            return False, str(exc)
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return True, str(value)
+    return False, f"unknown tool {parsed.op}"
 
 
 def project_history_prompt(
@@ -87,6 +146,7 @@ class ChatEnv:
     awaiting_user: bool = False
     reset_observation: str | None = None
     on_wait: OnWait | None = None
+    last_tool: dict[str, Any] | None = None
     _inbox: queue.Queue[Any] = field(default_factory=queue.Queue)
 
     def feed(self, text: str | None) -> None:
@@ -101,6 +161,7 @@ class ChatEnv:
         self.n_valid_actions = 0
         self.n_invalid_actions = 0
         self.awaiting_user = False
+        self.last_tool = None
         # Human starts: O_0 is the first user line. run_skill_state calls
         # reset() before the first model call, so we block here until feed().
         # Do not drain _inbox — tests preload lines before the loop starts.
@@ -117,18 +178,39 @@ class ChatEnv:
             self.t += 1
             return (
                 f"ERROR: action does not match chat grammar: {action!r}. "
-                "Emit SAY/ASK/DONE followed by the text the user should see.",
+                "Emit SAY/ASK/DONE <text>, or TIME, CALC <expr>, HASH <text>.",
                 False,
-                {"valid": False, "assistant_text": None},
+                {"valid": False, "assistant_text": None, "tool": None},
             )
         self.n_valid_actions += 1
         self.t += 1
         self.last_reply = parsed.text
         self.last_op = parsed.op
+        if parsed.is_tool:
+            ok, result = run_chat_tool(parsed)
+            tool = {
+                "name": parsed.op,
+                "args": parsed.text,
+                "ok": ok,
+                "result": result,
+                "raw": parsed.raw,
+            }
+            self.last_tool = tool
+            if ok and parsed.op == "CALC":
+                obs = f"TOOL CALC: {parsed.text} = {result}"
+            elif ok:
+                obs = f"TOOL {parsed.op}: {result}"
+            else:
+                obs = f"TOOL ERROR {parsed.op}: {result}"
+            if self.on_wait:
+                self.on_wait({"type": "tool", "tool": tool, "action": parsed.raw})
+            return obs, False, {"valid": True, "assistant_text": None, "op": parsed.op, "tool": tool}
+        self.last_tool = None
         info: dict[str, Any] = {
             "valid": True,
             "assistant_text": parsed.text,
             "op": parsed.op,
+            "tool": None,
         }
         if parsed.op == "DONE":
             self.closed = True
@@ -163,6 +245,7 @@ class ChatEnv:
                 "n_valid_actions": self.n_valid_actions,
                 "n_invalid_actions": self.n_invalid_actions,
                 "awaiting_user": self.awaiting_user,
+                "last_tool": dict(self.last_tool) if self.last_tool else None,
             }
         )
         return snap

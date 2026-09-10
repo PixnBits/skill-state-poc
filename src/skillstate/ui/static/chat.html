@@ -70,7 +70,12 @@
     .bubble { max-width: 92%; padding: 8px 10px; border-radius: 6px; font: 13px/1.45 var(--sans); white-space: pre-wrap; word-break: break-word; }
     .bubble.user { align-self: flex-end; background: #24331f; border: 1px solid var(--line); }
     .bubble.assistant { align-self: flex-start; background: #151b13; border: 1px solid var(--line); color: var(--ink); }
+    .bubble.tool { align-self: flex-start; background: #132022; border: 1px solid #2a4a4c; color: var(--cyan); font-family: var(--mono); font-size: 12px; }
     .bubble .who { font: 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    .bubble.tool .who { color: var(--cyan); }
+    .tools-log { font: 12px/1.45 var(--mono); color: var(--cyan); min-height: 1.4em; }
+    .tools-log .row-tool { padding: 2px 0; }
+    .tools-log .row-tool.bad { color: var(--red); }
     details.cot { margin-top: 6px; color: var(--muted); font: 11px/1.4 var(--mono); }
     details.cot summary { cursor: pointer; color: #6d7d62; }
     .composer { border-top: 1px solid var(--line); padding: 10px; background: #151b13; }
@@ -175,6 +180,10 @@
           <span>action</span>
           <div id="action">—</div>
         </div>
+        <div class="action-box">
+          <span>tools called (env, not Ollama function-calling)</span>
+          <div class="tools-log" id="tools">none yet</div>
+        </div>
       </div>
       <canvas id="spark" height="92"></canvas>
     </section>
@@ -218,13 +227,26 @@ function setFlight(on) {
 function appendBubble(role, text, reasoning) {
   const div = document.createElement("div");
   div.className = "bubble " + role;
-  let html = '<div class="who">' + (role === "user" ? "User" : "Assistant") + "</div>" + escapeHtml(text);
+  const who = role === "user" ? "User" : (role === "tool" ? "Tool" : "Assistant");
+  let html = '<div class="who">' + who + "</div>" + escapeHtml(text);
   if (role === "assistant" && reasoning) {
     html += '<details class="cot"><summary>discarded CoT</summary>' + escapeHtml(reasoning) + "</details>";
   }
   div.innerHTML = html;
   $("thread").appendChild(div);
   $("thread").scrollTop = $("thread").scrollHeight;
+}
+
+function logTool(tool) {
+  if (!tool) return;
+  const box = $("tools");
+  if (box.textContent === "none yet") box.textContent = "";
+  const line = document.createElement("div");
+  line.className = "row-tool" + (tool.ok ? "" : " bad");
+  const args = tool.args ? " " + tool.args : "";
+  line.textContent = (tool.ok ? "ok" : "err") + "  " + tool.name + args + "  →  " + (tool.result || "");
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
 }
 
 function formatJson(value, path, changed) {
@@ -332,7 +354,9 @@ function listen() {
       $("action").textContent = msg.action || "—";
       $("patch").textContent = JSON.stringify(msg.state_patch || {}, null, 2);
       renderState(msg.proposed_state || {}, Object.keys(msg.state_patch || {}));
-      if (msg.assistant_text && !shownAssistant) {
+      if (msg.tool_pending) {
+        setStatus("calling tool " + (msg.action || "") + "…");
+      } else if (msg.assistant_text && !shownAssistant) {
         appendBubble("assistant", msg.assistant_text, msg.reasoning);
         priorForEstimate.push(["assistant", msg.assistant_text]);
         shownAssistant = true;
@@ -368,13 +392,22 @@ function listen() {
       } else {
         $("banner").classList.remove("show");
         $("btnRetry").disabled = true;
-        if (msg.assistant_text && !shownAssistant) {
+        if (msg.tool) {
+          logTool(msg.tool);
+          const args = msg.tool.args ? " " + msg.tool.args : "";
+          appendBubble("tool", msg.tool.name + args + " → " + (msg.tool.result || ""));
+          setStatus("tool " + msg.tool.name + " returned — model continues");
+        } else if (msg.assistant_text && !shownAssistant) {
           appendBubble("assistant", msg.assistant_text, msg.reasoning);
           priorForEstimate.push(["assistant", msg.assistant_text]);
         }
         shownAssistant = false;
       }
-      setFlight(false);
+      if (msg.tool) {
+        /* next prompt is the tool result; stay in-flight */
+      } else {
+        setFlight(false);
+      }
     } else if (msg.type === "awaiting_user") {
       awaiting = true;
       sessionDone = false;
@@ -431,6 +464,7 @@ function resetView(clearThread) {
   $("action").textContent = "—";
   $("histSize").textContent = "—";
   $("tokCmp").textContent = "tokens";
+  $("tools").textContent = "none yet";
   drawSpark();
   setStatus("idle");
   $("btnRetry").disabled = true;

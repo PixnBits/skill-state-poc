@@ -140,6 +140,7 @@ Open [http://127.0.0.1:8000/chat](http://127.0.0.1:8000/chat). Default model is 
 
 - **Left — History (what ReAct would keep).** User / Assistant bubbles. This column is a *projection* of the same episode: it appends your line and the assistant’s `SAY`/`ASK`/`DONE` text. It is **not** sent to the model. Under the thread, a would-be prompt size (P + full transcript + latest user line) climbs as the chat grows.
 - **Right — SKILL.state (what the model actually received).** Collapsed P, \(\Sigma_t\) as formatted JSON (changed keys flash ~1s), \(O_t\) = the latest user utterance only, \(R_t\) streaming then stamped `discard`, then `state_patch` + `action`. Sparkline: this turn’s SKILL.state prompt tokens (amber, ~flat) vs the history-projection estimate (cyan, climbing).
+- **Tools** are extra skill *actions* (`TIME`, `CALC <expr>`, `HASH <text>`), not Ollama function-calling. The env runs them and the next \(O_t\) is `TOOL …`. The left column logs each call; the right column keeps a running list.
 
 One SKILL.state loop. Do not read the left column as a second agent. Numbers for warehouse skillstate-vs-history are in [`runs/BENCH.md`](runs/BENCH.md); this demo does not claim a wall-clock speedup.
 
@@ -153,7 +154,7 @@ OLLAMA_MODEL=llama3.1:8b uv run skillstate warehouse
 uv run skillstate warehouse --model qwen2.5:32b
 ```
 
-Same flags work for `ui` and `compare`. Temperature is hard-coded to `0.0`. Completions are capped at 2048 tokens so a grammar-failing ReAct dump cannot fill the 32k context. No tool/function-calling.
+Same flags work for `ui` and `compare`. Temperature is hard-coded to `0.0`. Completions are capped at 2048 tokens so a grammar-failing ReAct dump cannot fill the 32k context. The Ollama HTTP client does not use function-calling.
 
 ### 7. Compare mode (the actual proof)
 

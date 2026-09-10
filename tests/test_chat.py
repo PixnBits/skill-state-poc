@@ -12,6 +12,7 @@ from skillstate.skills.chat.env import (
     ChatEnv,
     parse_chat_action,
     project_history_prompt,
+    run_chat_tool,
 )
 from skillstate.skills.chat.schema import ChatState, initial_chat_state
 from skillstate.skills.chat import ChatSkill
@@ -27,6 +28,7 @@ def test_chat_page_is_static_html():
     assert page.status_code == 200
     assert b"History (what ReAct would keep)" in page.content
     assert b"SKILL.state (what the model actually received)" in page.content
+    assert b"tools called" in page.content
     assert b'<textarea id="input"' in page.content
     assert b'<textarea id="input" placeholder' in page.content
     assert b'<textarea id="input" placeholder="Type a message. Enter sends, Shift+Enter newline." disabled>' not in page.content
@@ -50,6 +52,41 @@ def test_parse_rejects_wait_and_junk():
     assert parse_chat_action("SAY ") is None
     assert parse_chat_action("HELLO there") is None
     assert parse_chat_action("") is None
+    assert parse_chat_action("CALC") is None
+    assert parse_chat_action("HASH") is None
+    assert parse_chat_action("TIME extra") is None
+
+
+def test_parse_tools():
+    assert parse_chat_action("TIME") is not None and parse_chat_action("TIME").is_tool
+    calc = parse_chat_action("CALC 2+2")
+    assert calc is not None and calc.op == "CALC" and calc.text == "2+2"
+    hashed = parse_chat_action("HASH hello")
+    assert hashed is not None and hashed.op == "HASH"
+
+
+def test_calc_and_hash_tools():
+    ok, result = run_chat_tool(parse_chat_action("CALC (2+3)*4"))
+    assert ok and result == "20"
+    ok, result = run_chat_tool(parse_chat_action("CALC 1/0"))
+    assert not ok
+    ok, result = run_chat_tool(parse_chat_action("CALC __import__('os')"))
+    assert not ok
+    ok, digest = run_chat_tool(parse_chat_action("HASH hello"))
+    assert ok and len(digest) == 64
+
+
+def test_time_tool_does_not_wait_for_user():
+    env = ChatEnv()
+    env.feed("what time is it")
+    env.reset()
+    obs, done, info = env.step("TIME")
+    assert done is False
+    assert info["valid"] and info["tool"]["ok"]
+    assert obs.startswith("TOOL TIME:")
+    env.feed("that's enough")
+    obs, done, info = env.step("DONE thanks")
+    assert done is True
 
 
 def test_schema_extra_forbid():
@@ -177,3 +214,27 @@ def test_validator_error_does_not_execute():
     assert result.steps[0].action == ""
     assert env.n_valid_actions == 1
     assert result.steps[1].action.startswith("SAY ")
+
+
+def test_offline_policy_uses_calc_then_says_result():
+    skill = ChatSkill()
+    env = ChatEnv()
+    env.feed("what is 2+2")
+    env.feed("that's enough")
+    llm = FakeLLM(chat_skillstate_policy, model="fake")
+    result = run_skill_state(
+        skill_name=skill.name,
+        instructions=skill.instructions,
+        state_schema=skill.state_schema,
+        initial_state=skill.initial_state(),
+        env=env,
+        llm=llm,
+        parse_action=skill.parse_action,
+        max_steps=6,
+        seed=0,
+        model="fake",
+    )
+    actions = [s.action for s in result.steps if not s.validation_error]
+    assert "CALC 2+2" in actions
+    assert any(a.startswith("SAY ") and "4" in a for a in actions)
+    assert result.success, result.fail_reason

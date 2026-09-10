@@ -306,6 +306,31 @@ def chat_skillstate_policy(prompt: str) -> str:
     if observation.startswith("VALIDATOR ERROR"):
         action = "SAY Please say that again — I failed to format the last reply."
         reasoning = "Validator rejected the last payload; emit a legal SAY."
+    elif observation.startswith("TOOL CALC:"):
+        action = f"SAY {observation.split(':', 1)[1].strip()}."
+        reasoning = "Report the calculator result."
+    elif observation.startswith("TOOL TIME:"):
+        action = f"SAY The local time is {observation.split(':', 1)[1].strip()}."
+        reasoning = "Report the clock result."
+    elif observation.startswith("TOOL HASH:"):
+        action = f"SAY SHA-256 {observation.split(':', 1)[1].strip()}."
+        reasoning = "Report the hash result."
+    elif observation.startswith("TOOL ERROR"):
+        action = f"SAY The tool failed: {observation}."
+        reasoning = "Surface the tool error."
+    elif re.search(r"\b(what time|time is it|current time)\b", observation, re.I):
+        action = "TIME"
+        reasoning = "Need the clock; call TIME."
+    elif (calc := re.search(
+        r"(?:calc(?:ulate)?|what is)\s+([0-9.+\-*/() ]{1,80})\s*\??\s*$",
+        observation,
+        re.I,
+    )):
+        action = f"CALC {calc.group(1).strip()}"
+        reasoning = "Need arithmetic; call CALC."
+    elif (hashed := re.search(r"\bhash\s+(.+)$", observation, re.I)):
+        action = f"HASH {hashed.group(1).strip()}"
+        reasoning = "Need a digest; call HASH."
     elif re.search(r"\b(goodbye|that's enough|that is enough|done)\b", observation, re.I):
         action = "DONE Glad we could talk."
         reasoning = "User asked to stop; DONE."
